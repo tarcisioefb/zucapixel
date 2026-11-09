@@ -56,7 +56,7 @@ export function slugify(name: string): string {
 }
 
 /** Remove a extensão do nome (`hero.png` → `hero`). */
-function stripExtension(filename: string): string {
+export function stripExtension(filename: string): string {
   const idx = filename.lastIndexOf('.');
   // Ignora dotfiles (`.htaccess`) e nomes sem extensão real
   if (idx <= 0) return filename;

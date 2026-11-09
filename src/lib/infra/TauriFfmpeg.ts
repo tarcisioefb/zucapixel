@@ -49,6 +49,28 @@ export async function probePixFmt(path: string): Promise<string | null> {
   return invoke<string | null>("probe_pix_fmt", { path });
 }
 
+export interface VideoProbe {
+  durationSec?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+/** Duração (s) e dimensões de um vídeo real. */
+export async function probeVideo(path: string): Promise<VideoProbe> {
+  return invoke<VideoProbe>("probe_video", { path });
+}
+
+/** Diálogo nativo de seleção (múltiplos vídeos). */
+export async function pickVideoFiles(): Promise<string[]> {
+  const selected = await open({
+    multiple: true,
+    directory: false,
+    filters: [{ name: "Vídeos", extensions: ["mp4", "mov", "m4v", "webm", "mkv"] }],
+  });
+  if (!selected) return [];
+  return Array.isArray(selected) ? selected : [selected];
+}
+
 /** true se o pixel format carrega canal alpha. */
 export function pixFmtHasAlpha(pixFmt: string | null | undefined): boolean {
   if (!pixFmt) return false;

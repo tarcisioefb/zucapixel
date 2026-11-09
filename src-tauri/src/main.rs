@@ -250,6 +250,60 @@ async fn probe_pix_fmt(app: tauri::AppHandle, path: String) -> Result<Option<Str
     Ok(None)
 }
 
+/// Inspeciona um vídeo: duração (s), largura e altura (via `ffmpeg -i`).
+/// Usado pelo preflight (corte em 6/8/10s) e pela barra de progresso.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoProbe {
+    duration_sec: Option<f64>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[tauri::command]
+async fn probe_video(app: tauri::AppHandle, path: String) -> Result<VideoProbe, String> {
+    let output = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| format!("Sidecar ffmpeg indisponível: {e}"))?
+        .args(["-hide_banner", "-i", &path, "-f", "null", "-"])
+        .output()
+        .await
+        .map_err(|e| format!("Falha ao inspecionar vídeo: {e}"))?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut duration_sec: Option<f64> = None;
+    let mut width: Option<u32> = None;
+    let mut height: Option<u32> = None;
+
+    for line in stderr.lines() {
+        if duration_sec.is_none() {
+            duration_sec = parse_ffmpeg_duration(line);
+        }
+        // "Video: h264 (...), yuv420p(...), 1920x1080 [SAR ..." — acha WxH.
+        if width.is_none() && line.contains("Video:") {
+            for part in line.split(',') {
+                let token = part.trim().split_whitespace().next().unwrap_or("");
+                if let Some((w, h)) = token.split_once('x') {
+                    if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
+                        if w > 0 && h > 0 && w <= 16384 && h <= 16384 {
+                            width = Some(w);
+                            height = Some(h);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(VideoProbe {
+        duration_sec,
+        width,
+        height,
+    })
+}
+
 /// Roda o sidecar `binaries/avifenc` (libavif de referência, COM alpha).
 /// Mesmo protocolo de progresso do `run_ffmpeg` (avifenc não emite
 /// `out_time_ms`, então a barra usa o fallback até concluir com 1.0).
@@ -357,6 +411,7 @@ fn main() {
             greeting,
             probe_media,
             probe_pix_fmt,
+            probe_video,
             run_ffmpeg,
             run_avifenc,
             list_outputs

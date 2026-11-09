@@ -17,6 +17,8 @@
  * com `width/height` explícitos para não estourar CLS.
  */
 
+import { slugify, stripExtension } from './slugify';
+
 /** Formatos de saída de imagem suportados na fase 1 + 2. `png` = compressão lossless otimizada (estilo iLoveIMG). */
 export type ImageFormat = 'webp' | 'avif' | 'jpg' | 'png';
 
@@ -303,6 +305,50 @@ export function buildImageFfmpegArgs(
 
   args.push(output);
   return args;
+}
+
+/**
+ * Nome de saída de vídeo: `<slug>-<preset>.mp4|.webm`,
+ * AV1 como `<slug>-<preset>-av1.mp4`, poster `<slug>-<preset>-poster.jpg`.
+ */
+export type VideoOutputKind = 'mp4' | 'webm' | 'av1' | 'poster';
+
+export function buildVideoOutputName(
+  original: string,
+  presetId: string,
+  kind: VideoOutputKind,
+): string {
+  const base = slugify(stripExtension(original.trim()));
+  const preset = slugify(presetId);
+  switch (kind) {
+    case 'mp4':
+      return `${base}-${preset}.mp4`;
+    case 'webm':
+      return `${base}-${preset}.webm`;
+    case 'av1':
+      return `${base}-${preset}-av1.mp4`;
+    case 'poster':
+      return `${base}-${preset}-poster.jpg`;
+  }
+}
+
+/**
+ * Monta os args do poster (frame em 1s, largura dada, JPG q3).
+ * É o fallback/LCP do hero + og:image.
+ */
+export function buildPosterArgs(input: string, output: string, width: number): string[] {
+  if (!input || !output) throw new Error('input/output são obrigatórios.');
+  if (!Number.isInteger(width) || width <= 0) {
+    throw new Error(`Largura inválida para poster: ${String(width)}`);
+  }
+  return [
+    '-hide_banner', '-y',
+    '-ss', '1', '-i', input,
+    '-frames:v', '1',
+    '-vf', `scale=${width}:-2`,
+    '-q:v', '3',
+    output,
+  ];
 }
 
 /**

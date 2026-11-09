@@ -4,10 +4,11 @@ import { isTauri } from "./lib/infra/TauriFfmpeg";
 import { CompressTab } from "./components/CompressTab";
 import { ConverterTab } from "./components/ConverterTab";
 import { TauriConvertTab } from "./components/TauriConvertTab";
+import { TauriVideoTab } from "./components/TauriVideoTab";
 
-type Tab = "Fila" | "Comprimir" | "Presets" | "Export";
+type Tab = "Fila" | "Comprimir" | "Vídeo" | "Presets" | "Export";
 
-const TABS: Tab[] = ["Fila", "Comprimir", "Presets", "Export"];
+const TABS: Tab[] = ["Fila", "Comprimir", "Vídeo", "Presets", "Export"];
 
 const IN_TAURI = isTauri();
 
@@ -48,6 +49,16 @@ export default function App() {
           IN_TAURI ? <TauriConvertTab kind="compress" /> : <CompressTab />
         ) : tab === "Fila" ? (
           IN_TAURI ? <TauriConvertTab kind="convert" /> : <ConverterTab />
+        ) : tab === "Vídeo" ? (
+          IN_TAURI ? (
+            <TauriVideoTab />
+          ) : (
+            <div className="flex flex-1 items-center justify-center p-6">
+              <p className="text-sm text-zinc-500">
+                Conversão de vídeo disponível só no app desktop (Tauri + ffmpeg).
+              </p>
+            </div>
+          )
         ) : (
           <div className="flex flex-1 items-center justify-center p-6">
             <p className="text-sm text-zinc-500">
