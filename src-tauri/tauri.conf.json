@@ -42,7 +42,6 @@
   },
   "plugins": {
     "fs": {},
-    "dialog": {},
     "opener": {},
     "shell": {}
   }
