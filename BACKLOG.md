@@ -2,20 +2,28 @@
 
 Foco: **imagem primeiro** (uso diário), vídeo como secundário.
 
+## Feito
+- [x] App desktop Tauri (ffmpeg 9.0.2 + avifenc 1.4.2 sidecars ARM64)
+- [x] Converter imagens: resize opcional (800/1200/1920w/Original) + WebP/AVIF(c/ alpha)/JPG, nomes slugificados, saída em `Imagens/Otimizadas`, dedup `-2/-3` sem sobrescrever
+- [x] Comprimir JPG/PNG estilo iLoveIMG (q slider, mantém dims/formato)
+- [x] Tab Vídeo: MP4 + WebM VP9 + poster + AV1 opcional (incl. preset Original sem corte/resize), presets hero-light/bg-720p/hq-1080p/av1-ultra
+- [x] Qualidade configurável (WebP 85 / AVIF 65 default, sliders por preset atrás de engrenagem)
+- [x] Streaming assíncrono por formato + totais de economia por formato
+- [x] Pre-flight (5MB hard, hero 150KB warn, upscale, WP -scaled 2560px)
+- [x] Overlay de drop na janela inteira; correções: drop duplicado, transparência AVIF, jobId camelCase, fs.exists
+
 ## Must (MVP local, sem auth WP)
-- [x] Smart Drop + rename slugify + resize (800/1200/1920w) + WebP/AVIF
-- [x] **Comprimir JPG/PNG (estilo iLoveIMG)**: presets `compress-jpg` (q75, mantém dims) e `compress-png` (level 9, mantém dims); preflight modo compress aceita até 10MB e avisa economia esperada (-40/-70% JPG, -20/-50% PNG)
-- [x] Tabela alt editável + export CSV
-- [x] Pre-flight gate (peso/dims/nome/alt/upscale)
-- [ ] Presets por cliente (JSON local)
+- [ ] Tabela alt editável + export CSV (hoje: só warn de alt ausente no preflight)
 - [ ] Export `.zip` + `report.csv` (antes/depois, % economia)
+- [ ] Presets por cliente (JSON local: prefixo, qualidades, pasta)
 
 ## Should (pós-MVP)
-- [ ] Fase 2 AVIF/PNG batch via vips sidecar (pngquant/oxipng, mais taxa que ffmpeg)
-- [ ] Video-to-Elementor (MP4 + WebM VP9 + poster + AV1 opt-in)
-- [ ] Detector duplicadas por hash
-- [ ] WP Connect via REST (`/wp-json/wp/v2/media` + `alt_text`, Application Passwords)
-- [ ] Audit URL (LCP/lazy/dims)
+- [ ] PNG quantizado (pngquant/oxipng via vips sidecar ou oxipng estático — ffmpeg sozinho comprime pouco PNG)
+- [ ] Detector duplicadas por hash (evita re-converter o mesmo arquivo)
+- [ ] WP Connect via REST (`/wp-json/wp/v2/media` + `alt_text`, Application Passwords, upload em lote)
+- [ ] Audit URL (cola URL Elementor → checa LCP/lazy/dims/OG)
+- [ ] `tauri build` → `.app`/`.dmg` instalável + updater
 
 ## Won't (agora)
 - XML-RPC, escrita em `_elementor_data`, SEO meta via app, AVIF como único formato.
+- vips sidecar p/ AVIF (avifenc resolveu melhor).
