@@ -33,8 +33,7 @@
       "allow": [
         { "name": "binaries/ffmpeg", "sidecar": true, "args": true },
         { "name": "binaries/avifenc", "sidecar": true, "args": true },
-        { "name": "binaries/pngquant", "sidecar": true, "args": true },
-        { "name": "binaries/vips", "sidecar": true, "args": true }
+        { "name": "binaries/pngquant", "sidecar": true, "args": true }
       ]
     },
     {
@@ -42,8 +41,7 @@
       "allow": [
         { "name": "binaries/ffmpeg", "sidecar": true, "args": true },
         { "name": "binaries/avifenc", "sidecar": true, "args": true },
-        { "name": "binaries/pngquant", "sidecar": true, "args": true },
-        { "name": "binaries/vips", "sidecar": true, "args": true }
+        { "name": "binaries/pngquant", "sidecar": true, "args": true }
       ]
     }
   ]
