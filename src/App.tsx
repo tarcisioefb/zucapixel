@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ImagePreset } from "./lib/convert/presets";
+import { CompressTab } from "./components/CompressTab";
 
 // TODO(image): implementar src/lib/convert/presets.ts com os presets
 // WebP/AVIF + larguras Elementor. Enquanto não existe, usa fallback vazio.
@@ -18,9 +19,9 @@ type Job = {
   status: JobStatus;
 };
 
-type Tab = "Fila" | "Presets" | "Export";
+type Tab = "Fila" | "Comprimir" | "Presets" | "Export";
 
-const TABS: Tab[] = ["Fila", "Presets", "Export"];
+const TABS: Tab[] = ["Fila", "Comprimir", "Presets", "Export"];
 
 const STATUS_STYLE: Record<JobStatus, string> = {
   "na-fila": "bg-zinc-700/60 text-zinc-300",
@@ -96,6 +97,10 @@ export default function App() {
 
       {/* Main */}
       <main className="flex min-w-0 flex-1 flex-col">
+        {tab === "Comprimir" ? (
+          <CompressTab />
+        ) : (
+          <>
         {/* DropZone grande */}
         <section className="p-6 pb-4">
           <div className="flex min-h-44 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 bg-zinc-900/50 px-6 py-10 text-center transition hover:border-zinc-500">
@@ -175,6 +180,8 @@ export default function App() {
             </table>
           </div>
         </section>
+          </>
+        )}
       </main>
     </div>
   );
