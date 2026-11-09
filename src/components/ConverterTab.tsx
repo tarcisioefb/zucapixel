@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import {
   IMAGE_PRESETS,
-  getImagePreset,
   type ImageFormat,
   type ImagePreset,
 } from "../lib/convert/presets";
@@ -19,9 +18,25 @@ import {
 } from "./fileUtils";
 
 /** Presets de conversão (resize). Exclui compress-only e logo-lossless. */
-const CONVERT_PRESETS: ImagePreset[] = IMAGE_PRESETS.filter(
-  (p) => !p.compressOnly && !p.lossless && p.width != null,
-);
+const CONVERT_PRESETS: ImagePreset[] = [
+  ...IMAGE_PRESETS.filter((p) => !p.compressOnly && !p.lossless && p.width != null),
+  {
+    id: "original",
+    label: "Original — sem resize",
+    width: null,
+    formats: ["webp", "avif"],
+    webpQuality: 80,
+    avifQuality: 60,
+    description: "Mantém as dimensões do arquivo, só converte o formato. O resize é opcional.",
+    maxKBWarning: 300,
+  },
+];
+
+function findPreset(id: string): ImagePreset {
+  const found = CONVERT_PRESETS.find((p) => p.id === id);
+  if (!found) throw new Error(`Preset de conversão desconhecido: "${id}"`);
+  return found;
+}
 
 const ACCEPT = "image/jpeg,image/png,image/webp";
 const MIN_QUALITY = 50;
@@ -100,7 +115,7 @@ async function convertImage(
         const q = (preset.avifQuality ?? 60) / 100;
         blob = await canvasToBlob(canvas, "image/avif", q);
       }
-      const name = buildOutputName(file.name, preset.id, targetWidth, format);
+      const name = buildOutputName(file.name, preset.id, preset.width, format);
       outputs.push({ format, size: blob.size, url: URL.createObjectURL(blob), name });
     }
     return { outputs, avifSkipped, width: outWidth, height: outHeight };
@@ -110,16 +125,14 @@ async function convertImage(
 }
 
 export function ConverterTab() {
-  const [presetId, setPresetId] = useState<string>(CONVERT_PRESETS[0]?.id ?? "1200w");
-  const [quality, setQuality] = useState<number>(
-    CONVERT_PRESETS[0]?.webpQuality ?? 80,
-  );
+  const [presetId, setPresetId] = useState<string>("original");
+  const [quality, setQuality] = useState<number>(80);
   const [items, setItems] = useState<ConvertItem[]>([]);
   const [dragging, setDragging] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const urlsRef = useRef<string[]>([]);
 
-  const preset = getImagePreset(presetId);
+  const preset = findPreset(presetId);
 
   useEffect(() => {
     const bag = urlsRef.current;
@@ -270,7 +283,7 @@ export function ConverterTab() {
   }
 
   function handlePresetChange(nextId: string): void {
-    const next = getImagePreset(nextId);
+    const next = findPreset(nextId);
     setPresetId(nextId);
     if (next.webpQuality) setQuality(next.webpQuality);
     reprocess(
@@ -372,16 +385,17 @@ export function ConverterTab() {
         <header>
           <h2 className="text-lg font-semibold text-white">Converter para web</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Resize sem upscale + WebP/AVIF no navegador. AVIF só é gerado se o navegador suportar
-            encode — senão, use WebP agora e o AVIF sai na fase 2 (Tauri/ffmpeg).
+            Resize opcional + WebP/AVIF no navegador. O padrão é manter o tamanho original — escolha
+            800w/1200w/1920w só se quiser redimensionar. AVIF sai se o navegador suportar encode,
+            senão fica pra fase 2 (Tauri/ffmpeg).
           </p>
         </header>
 
         {/* Presets */}
         <div
-          className="grid gap-3 sm:grid-cols-3"
+          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
           role="group"
-          aria-label="Preset de conversão"
+          aria-label="Preset de conversão (resize opcional)"
         >
           {CONVERT_PRESETS.map((p) => (
             <button
