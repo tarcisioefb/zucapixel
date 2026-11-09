@@ -57,9 +57,11 @@ export async function runFfmpeg(
     if (event.payload.jobId === jobId) onProgress?.(event.payload.progress);
   });
   try {
+    // NOTE: a chave precisa ser snake_case (`job_id`) — o invoke NÃO converte
+    // camelCase automaticamente; com `jobId` o Rust rejeita ("missing argument").
     await invoke<string>("run_ffmpeg", {
       args: ["-progress", "pipe:1", "-nostats", ...args],
-      jobId,
+      job_id: jobId,
     });
   } finally {
     unlisten();

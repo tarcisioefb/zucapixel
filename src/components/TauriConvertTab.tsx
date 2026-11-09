@@ -273,11 +273,13 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
             : it,
         ),
       );
-    } catch {
+    } catch (e) {
+      // Mostra a mensagem REAL (Rust/sidecar/permissão) em vez de genérica.
+      const detail = e instanceof Error ? e.message : String(e);
       setItems((prev) =>
         prev.map((it) =>
           it.id === item.id
-            ? { ...it, status: "erro" as const, error: "Falha ao rodar o ffmpeg." }
+            ? { ...it, status: "erro" as const, error: `Falha no ffmpeg: ${detail}` }
             : it,
         ),
       );
