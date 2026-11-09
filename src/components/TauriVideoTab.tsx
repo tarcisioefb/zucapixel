@@ -73,9 +73,10 @@ const ORIGINAL_VIDEO_PRESET: VideoPreset = {
   crfMp4: 23,
   crfVp9: 28,
   durationCap: null,
-  description: "Mantém dimensões e duração; só converte (MP4 + WebM + poster) e comprime.",
+  description: "Mantém dimensões e duração; só converte (MP4 + WebM + AV1 + poster) e comprime.",
   ffmpegMp4Args: ["-c:v", "libx264", "-crf", "23", "-preset", "medium"],
   ffmpegWebmArgs: ["-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-deadline", "good", "-cpu-used", "2"],
+  ffmpegAv1Args: ["-c:v", "libsvtav1", "-crf", "38", "-preset", "8"],
 };
 
 const ALL_VIDEO_PRESETS: VideoPreset[] = [ORIGINAL_VIDEO_PRESET, ...VIDEO_PRESETS];
