@@ -23,6 +23,7 @@ import {
   convertFileSrc,
   deleteFile,
   dirname,
+  ensureOutputDir,
   onWindowDrop,
   openFolder,
   pickImageFiles,
@@ -72,6 +73,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 80);
   const [items, setItems] = useState<TauriItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
+  const outDirRef = useRef<string | null>(null);
   const inputPicking = useRef(false);
 
   // Drop na janela entrega paths reais do SO.
@@ -180,8 +182,11 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
         return;
       }
 
-      const dir = dirname(item.path);
-      setOutDir(dir);
+      if (!outDirRef.current) {
+        outDirRef.current = await ensureOutputDir();
+        setOutDir(outDirRef.current);
+      }
+      const dir = outDirRef.current;
       const outputs: TauriOutput[] = [];
       const bigger: ImageFormat[] = [];
       let avifError = false;
@@ -342,8 +347,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const isConvert = kind === "convert";
   const title = isConvert ? "Converter para web" : "Comprimir imagens";
   const subtitle = isConvert
-    ? "ffmpeg real: resize opcional + WebP/AVIF (libaom) na mesma pasta do original."
-    : "ffmpeg real: mesmo formato e dimensões, só o peso cai. Saída na mesma pasta.";
+    ? "ffmpeg real: resize opcional + WebP/AVIF (libaom). Saída em Imagens/Otimizadas."
+    : "ffmpeg real: mesmo formato e dimensões, só o peso cai. Saída em Imagens/Otimizadas.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-6">

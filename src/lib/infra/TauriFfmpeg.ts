@@ -11,9 +11,10 @@
  */
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { join, pictureDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { remove } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, remove } from "@tauri-apps/plugin-fs";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 
 export { convertFileSrc };
@@ -68,6 +69,18 @@ export async function runFfmpeg(
 /** Apaga um arquivo gerado (ex.: saída maior que o original). */
 export async function deleteFile(path: string): Promise<void> {
   await remove(path);
+}
+
+/**
+ * Pasta padrão de saída: `~/Pictures/Otimizadas` (criada se não existir).
+ * Coberta pelo `fs:scope` ($PICTURE/**) das capabilities.
+ */
+export async function ensureOutputDir(): Promise<string> {
+  const dir = await join(await pictureDir(), "Otimizadas");
+  if (!(await exists(dir))) {
+    await mkdir(dir, { recursive: true });
+  }
+  return dir;
 }
 
 /** Diálogo nativo de seleção (múltiplos arquivos de imagem). */
