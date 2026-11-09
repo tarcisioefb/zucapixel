@@ -149,13 +149,19 @@ export type VideoKind = 'mp4' | 'webm' | 'av1';
 export interface VideoPreset {
   id: string;
   label: string;
-  /** Largura alvo (altura proporcional, par). */
-  width: number;
+  /**
+   * Largura alvo (altura proporcional, par). `null` = sem resize,
+   * mantém as dimensões do original (só converte/comprime).
+   */
+  width: number | null;
   fps: number;
   crfMp4: number;
   crfVp9: number;
-  /** Trava de duração em segundos — ffmpeg `-t`. */
-  durationCap: number;
+  /**
+   * Trava de duração em segundos — ffmpeg `-t`. `null` = sem corte,
+   * converte o vídeo inteiro.
+   */
+  durationCap: number | null;
   description: string;
   /** Args base (sem `-i`/input/output) para H.264. */
   ffmpegMp4Args: string[];
@@ -404,8 +410,9 @@ export function buildAvifencArgs(
 
 /**
  * Monta os args do ffmpeg para UM vídeo.
- * Sempre: scale anti-upscale + fps + `-t durationCap` + `-an` (mudo,
- * padrão para bg/hero) + `faststart` no MP4 + `yuv420p` (compat. máxima).
+ * Sempre: fps + `-an` (mudo, padrão para bg/hero) + `faststart` no MP4 +
+ * `yuv420p` (compat. máxima). Com `width` setado: scale anti-upscale.
+ * Com `durationCap` setado: `-t` corta no limite.
  */
 export function buildVideoArgs(
   input: string,
@@ -425,17 +432,21 @@ export function buildVideoArgs(
     codecArgs = preset.ffmpegAv1Args;
   }
 
-  const scale = `scale=w='min(${preset.width},iw)':h=-2:flags=lanczos,fps=${preset.fps}`;
+  const vf = preset.width != null
+    ? `scale=w='min(${preset.width},iw)':h=-2:flags=lanczos,fps=${preset.fps}`
+    : `fps=${preset.fps}`;
 
   const args: string[] = [
     '-hide_banner', '-y',
     '-i', input,
-    '-vf', scale,
-    '-t', String(preset.durationCap),
+    '-vf', vf,
+  ];
+  if (preset.durationCap != null) args.push('-t', String(preset.durationCap));
+  args.push(
     '-an', // sem áudio: bg/hero em loop não precisam de trilha
     ...codecArgs,
     '-pix_fmt', 'yuv420p',
-  ];
+  );
 
   if (kind === 'mp4') args.push('-movflags', '+faststart');
   args.push(output);

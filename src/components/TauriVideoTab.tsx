@@ -12,7 +12,6 @@ import {
   buildPosterArgs,
   buildVideoArgs,
   buildVideoOutputName,
-  getVideoPreset,
   type VideoKind,
   type VideoOutputKind,
   type VideoPreset,
@@ -65,20 +64,42 @@ interface VideoItem {
 const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv)$/i;
 const POSTER_WIDTH = 1280;
 
+/** Preset sintético: sem resize e sem corte — só converte/comprime. */
+const ORIGINAL_VIDEO_PRESET: VideoPreset = {
+  id: "original",
+  label: "Original — sem resize/corte",
+  width: null,
+  fps: 30,
+  crfMp4: 23,
+  crfVp9: 28,
+  durationCap: null,
+  description: "Mantém dimensões e duração; só converte (MP4 + WebM + poster) e comprime.",
+  ffmpegMp4Args: ["-c:v", "libx264", "-crf", "23", "-preset", "medium"],
+  ffmpegWebmArgs: ["-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-deadline", "good", "-cpu-used", "2"],
+};
+
+const ALL_VIDEO_PRESETS: VideoPreset[] = [ORIGINAL_VIDEO_PRESET, ...VIDEO_PRESETS];
+
+function findVideoPreset(id: string): VideoPreset {
+  const found = ALL_VIDEO_PRESETS.find((p) => p.id === id);
+  if (!found) throw new Error(`Preset de vídeo desconhecido: "${id}"`);
+  return found;
+}
+
 function formatDuration(sec: number | undefined): string {
   if (sec == null || !Number.isFinite(sec)) return "—";
   return `${Math.round(sec)}s`;
 }
 
 export function TauriVideoTab() {
-  const [presetId, setPresetId] = useState<string>("hero-light");
+  const [presetId, setPresetId] = useState<string>("original");
   const [items, setItems] = useState<VideoItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
   const [windowDragging, setWindowDragging] = useState<boolean>(false);
   const outDirRef = useRef<string | null>(null);
   const inputPicking = useRef(false);
 
-  const preset: VideoPreset = getVideoPreset(presetId);
+  const preset: VideoPreset = findVideoPreset(presetId);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -129,12 +150,12 @@ export function TauriVideoTab() {
   }
 
   async function processItem(item: VideoItem, nextPresetId: string): Promise<void> {
-    const effPreset = getVideoPreset(nextPresetId);
+    const effPreset = findVideoPreset(nextPresetId);
     const setProgress = (p: number) =>
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, progress: p } : it)));
     try {
       const vprobe = await probeVideo(item.path).catch(() => null);
-      const durationSec = vprobe?.durationSec ?? effPreset.durationCap;
+      const durationSec = vprobe?.durationSec ?? effPreset.durationCap ?? 0;
       const width = vprobe?.width ?? 0;
       const height = vprobe?.height ?? 0;
 
@@ -164,7 +185,7 @@ export function TauriVideoTab() {
 
       // Progresso relativo ao trecho cortado (preset corta em 6/8/10s, mas a
       // Duration do arquivo é integral — sem o ajuste a barra pararia em ~10%).
-      const cap = Math.min(durationSec, effPreset.durationCap);
+      const cap = effPreset.durationCap ?? durationSec;
       const scaleProgress = (p: number) =>
         setProgress(durationSec > 0 ? Math.min(1, (p * durationSec) / Math.max(cap, 1)) : p);
 
@@ -177,7 +198,8 @@ export function TauriVideoTab() {
       {
         const base = buildVideoOutputName(item.name, effPreset.id, "poster");
         const out = await uniquePath(dir, base);
-        jobs.push({ format: "poster", kind: "poster", name: basename(out), out, args: buildPosterArgs(item.path, out, POSTER_WIDTH) });
+        const posterWidth = effPreset.width ?? width ?? POSTER_WIDTH;
+        jobs.push({ format: "poster", kind: "poster", name: basename(out), out, args: buildPosterArgs(item.path, out, posterWidth > 0 ? posterWidth : POSTER_WIDTH) });
       }
       if (effPreset.ffmpegAv1Args) {
         const base = buildVideoOutputName(item.name, effPreset.id, "av1");
@@ -348,13 +370,16 @@ export function TauriVideoTab() {
         <header>
           <h2 className="text-lg font-semibold text-white">Converter vídeo para web</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            MP4 + WebM + poster por arquivo (corte em {preset.durationCap}s, sem áudio).
-            AVIF de vídeo sai só no preset AV1 ultra.
+            MP4 + WebM + poster por arquivo, sem áudio.{" "}
+            {preset.durationCap != null
+              ? `Corte em ${preset.durationCap}s.`
+              : "Original não corta nem redimensiona."}{" "}
+            AV1 sai só no preset AV1 ultra.
           </p>
         </header>
 
-        <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label="Preset de vídeo">
-          {VIDEO_PRESETS.map((p) => {
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Preset de vídeo">
+          {ALL_VIDEO_PRESETS.map((p) => {
             const selected = presetId === p.id;
             const select = () => reprocessAll(p.id);
             return (
