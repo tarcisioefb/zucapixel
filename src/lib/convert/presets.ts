@@ -306,6 +306,35 @@ export function buildImageFfmpegArgs(
 }
 
 /**
+ * Monta os args do ffmpeg para UM AVIF (desktop, libaom-av1).
+ * Qualidade 0–100 mapeada para CRF 0–63 (q60 ≈ crf 25, nível Cloudinary).
+ */
+export function buildAvifFfmpegArgs(
+  input: string,
+  output: string,
+  width: number | null,
+  quality: number,
+): string[] {
+  if (!input || !output) throw new Error('input/output são obrigatórios.');
+  if (quality < 0 || quality > 100) throw new Error(`Qualidade fora de 0–100: ${quality}`);
+
+  const scale = buildFfmpegScaleFilter(width);
+  const crf = Math.round(((100 - quality) / 100) * 63);
+
+  const args: string[] = ['-hide_banner', '-y', '-i', input];
+  if (scale) args.push('-vf', scale);
+  args.push(
+    '-c:v', 'libaom-av1',
+    '-crf', String(crf),
+    '-b:v', '0',
+    '-cpu-used', '4',
+    '-row-mt', '1',
+    output,
+  );
+  return args;
+}
+
+/**
  * Monta os args do ffmpeg para UM vídeo.
  * Sempre: scale anti-upscale + fps + `-t durationCap` + `-an` (mudo,
  * padrão para bg/hero) + `faststart` no MP4 + `yuv420p` (compat. máxima).

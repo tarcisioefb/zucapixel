@@ -1,0 +1,92 @@
+# ffmpeg sidecar — BUILD-INFO
+# Arquivo: src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+
+## Origem do build
+- URL de download: https://www.osxexperts.net/ffmpeg902arm.zip
+- Site: https://www.osxexperts.net/ (seção "Download ffmpeg 9.0.2 (Apple Silicon)")
+- SHA256 publicado no site: 762f16b2913b8d3b8fdb8092df12b691053b035b13ae9b88205513c55cb8e71e
+- SHA256 verificado localmente (shasum -a 256 do binário extraído): 762f16b2913b8d3b8fdb8092df12b691053b035b13ae9b88205513c55cb8e71e — CONFERE
+- Nota sobre evermeet.cx: https://evermeet.cx/ffmpeg/ffmpeg-7.xz retorna 404 e a
+  página https://evermeet.cx/ffmpeg/ declara "I do not plan to provide native
+  ffmpeg binaries for Apple Silicon ARM" (builds apenas Intel 64-bit).
+  Por isso o build evermeet.cx foi descartado e usou-se osxexperts.net (ARM64).
+- Arquivo dentro do zip: `ffmpeg` (52.160.568 bytes) → instalado como
+  `src-tauri/binaries/ffmpeg-aarch64-apple-darwin` (nome exato, sem extensão)
+- Triple verificado com `file`: Mach-O 64-bit executable arm64 — OK
+- Quarentena: `xattr -d com.apple.quarantine` executado (o arquivo baixado via
+  curl não tinha o atributo; file copiado com cp + chmod +x)
+
+## Versão (ffmpeg -version | head -2)
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+built with Apple clang version 13.1.6 (clang-1316.0.21.2.5)
+
+## Encoders verificados (ffmpeg -hide_banner -encoders | grep -E 'libvpx-vp9|libaom-av1|libwebp|mjpeg|png|libx264|libsvtav1')
+ V....D libaom-av1           libaom AV1 (codec av1)
+ V..... libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)
+ V....D libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+ V....D libx264rgb           libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 RGB (codec h264)
+ VFS..D mjpeg                MJPEG (Motion JPEG)
+ VF...D png                  PNG (Portable Network Graphics) image
+ V....D libvpx-vp9           libvpx VP9 (codec vp9)
+ V....D libwebp_anim         libwebp WebP image (codec webp)
+ V....D libwebp              libwebp WebP image (codec webp)
+
+Status dos obrigatórios:
+- libvpx-vp9: PRESENTE
+- libwebp (+ libwebp_anim): PRESENTE
+- mjpeg: PRESENTE
+- png (+ apng): PRESENTE
+- libx264: PRESENTE
+- libaom-av1: PRESENTE (desejável — OK)
+- libsvtav1: PRESENTE (desejável — OK)
+
+## AVIF
+- Muxer `avif` PRESENTE (ffmpeg -muxers mostra `E avif AVIF`).
+- Com libaom-av1 + libsvtav1 + muxer avif, a codificação AVIF é suportada.
+  Nenhuma ressalva: AVIF disponível neste build.
+
+## Licença / buildconf (ffmpeg -buildconf | head -30)
+  configuration:
+    --prefix=/Volumes/tempdisk/sw
+    --extra-cflags=-fno-stack-check
+    --arch=arm64
+    --cc=/usr/bin/clang
+    --enable-gpl
+    --enable-libvmaf
+    --enable-libopenjpeg
+    --enable-libopus
+    --enable-libmp3lame
+    --enable-libx264
+    --enable-libx265
+    --enable-libvvenc
+    --enable-libvpx
+    --enable-libwebp
+    --enable-libass
+    --enable-libfreetype
+    --enable-fontconfig
+    --enable-libtheora
+    --enable-libvorbis
+    --enable-libsnappy
+    --enable-libaom
+    --enable-libvidstab
+    --enable-libzimg
+    --enable-libsvtav1
+    --enable-libharfbuzz
+    --enable-libkvazaar
+    --enable-liboapv
+    --pkg-config-flags=--static
+    --enable-ffplay
+    --enable-neon
+    --enable-runtime-cpudetect
+    --disable-indev=qtkit
+    --disable-indev=x11grab_xcb
+
+NOTA DE LICENÇA — ATENÇÃO: este build contém `--enable-gpl` (e `--enable-libx264` /
+`--enable-libx265`). NÃO é um build LGPL puro. Ver README-SIDECARS.md: builds GPL
+exigem que o app inteiro seja GPL — revisar a estratégia de licenciamento/
+distribuição antes de publicar (preferir variante `lgpl` do BtbN para releases
+públicos, ou avaliar implicações GPL). Este arquivo apenas registra o fato.
+
+## Tamanho
+- 52160568 bytes (50M) — `stat -f '%z'`: 52160568
+- Estático (sem dependências externas; file = Mach-O 64-bit arm64)

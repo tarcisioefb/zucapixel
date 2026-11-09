@@ -7,8 +7,10 @@ dist-ssr/
 
 # tauri (src-tauri gerenciado por outro agente — não sobrescrever)
 src-tauri/target/
+src-tauri/gen/
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
+!src-tauri/binaries/BUILD-INFO.txt
 
 # logs / os
 *.log

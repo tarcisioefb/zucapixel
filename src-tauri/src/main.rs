@@ -113,7 +113,7 @@ fn probe_media(path: String) -> Result<ProbeResult, String> {
     })
 }
 
-/// Roda o sidecar `binaries/ffmpeg` com os args dados e emite progresso.
+/// Roda o sidecar `ffmpeg` (externalBin `binaries/ffmpeg`) com os args dados e emite progresso.
 ///
 /// Evento: `ffmpeg-progress` -> `{ job_id, progress: 0.0..=1.0 }`.
 /// Progresso é estimado via `out_time_ms=...` dividido pela `Duration:` do log.
@@ -128,9 +128,11 @@ async fn run_ffmpeg(
     use tauri_plugin_shell::process::CommandEvent;
 
     // Monta o sidecar empacotado em `src-tauri/binaries/ffmpeg-*`.
+    // NOTA: `sidecar()` espera só o nome-base ("ffmpeg"), não o path do
+    // `externalBin` ("binaries/ffmpeg"). Ver `develop/sidecar` na doc Tauri v2.
     let sidecar = app
         .shell()
-        .sidecar("binaries/ffmpeg")
+        .sidecar("ffmpeg")
         .map_err(|e| format!("Sidecar ffmpeg indisponível: {e}"))?;
 
     let (mut rx, _child) = sidecar

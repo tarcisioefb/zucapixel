@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { IMAGE_PRESETS } from "./lib/convert/presets";
+import { isTauri } from "./lib/infra/TauriFfmpeg";
 import { CompressTab } from "./components/CompressTab";
 import { ConverterTab } from "./components/ConverterTab";
+import { TauriConvertTab } from "./components/TauriConvertTab";
 
 type Tab = "Fila" | "Comprimir" | "Presets" | "Export";
 
 const TABS: Tab[] = ["Fila", "Comprimir", "Presets", "Export"];
+
+const IN_TAURI = isTauri();
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("Fila");
@@ -41,9 +45,9 @@ export default function App() {
       {/* Main */}
       <main className="flex min-w-0 flex-1 flex-col">
         {tab === "Comprimir" ? (
-          <CompressTab />
+          IN_TAURI ? <TauriConvertTab kind="compress" /> : <CompressTab />
         ) : tab === "Fila" ? (
-          <ConverterTab />
+          IN_TAURI ? <TauriConvertTab kind="convert" /> : <ConverterTab />
         ) : (
           <div className="flex flex-1 items-center justify-center p-6">
             <p className="text-sm text-zinc-500">

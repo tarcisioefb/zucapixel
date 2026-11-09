@@ -16,8 +16,8 @@ import {
   makeId,
 } from "./fileUtils";
 
-/** Presets de conversão (resize). Exclui compress-only e logo-lossless. */
-const CONVERT_PRESETS: ImagePreset[] = [
+/** Presets de conversão (resize + original). Exclui compress-only e logo-lossless. */
+export const CONVERT_PRESETS: ImagePreset[] = [
   ...IMAGE_PRESETS.filter((p) => !p.compressOnly && !p.lossless && p.width != null),
   {
     id: "original",
@@ -31,7 +31,7 @@ const CONVERT_PRESETS: ImagePreset[] = [
   },
 ];
 
-function findPreset(id: string): ImagePreset {
+export function findPreset(id: string): ImagePreset {
   const found = CONVERT_PRESETS.find((p) => p.id === id);
   if (!found) throw new Error(`Preset de conversão desconhecido: "${id}"`);
   return found;
