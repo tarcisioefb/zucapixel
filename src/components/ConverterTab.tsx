@@ -24,8 +24,8 @@ export const CONVERT_PRESETS: ImagePreset[] = [
     label: "Original — sem resize",
     width: null,
     formats: ["webp", "avif"],
-    webpQuality: 80,
-    avifQuality: 60,
+    webpQuality: 85,
+    avifQuality: 75,
     description: "Mantém as dimensões do arquivo, só converte o formato. O resize é opcional.",
     maxKBWarning: 300,
   },
@@ -142,7 +142,7 @@ async function convertImage(
 export function ConverterTab() {
   const [presetId, setPresetId] = useState<string>("original");
   const [bulkFormat, setBulkFormat] = useState<ImageFormat>("webp");
-  const [quality, setQuality] = useState<number>(80);
+  const [quality, setQuality] = useState<number>(85);
   const [items, setItems] = useState<ConvertItem[]>([]);
   const [dragging, setDragging] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);

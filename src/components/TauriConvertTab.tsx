@@ -24,6 +24,7 @@ import {
   deleteFile,
   dirname,
   ensureOutputDir,
+  fileExists,
   onWindowDrop,
   openFolder,
   pickImageFiles,
@@ -31,6 +32,7 @@ import {
   revealFile,
   runAvifenc,
   runFfmpeg,
+  uniquePath,
 } from "../lib/infra/TauriFfmpeg";
 
 type TabKind = "convert" | "compress";
@@ -73,7 +75,8 @@ const COMPRESS_PNG = IMAGE_PRESETS.find((p) => p.id === "compress-png");
 export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const [presetId, setPresetId] = useState<string>("original");
   const [compressMode, setCompressMode] = useState<CompressMode>("jpg");
-  const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 80);
+  const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 85);
+  const [avifQuality, setAvifQuality] = useState<number>(75);
   const [items, setItems] = useState<TauriItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
   const outDirRef = useRef<string | null>(null);
@@ -151,12 +154,14 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   interface ProcessOverrides {
     presetId?: string;
     quality?: number;
+    avifQuality?: number;
     mode?: CompressMode;
   }
 
   async function processItem(item: TauriItem, overrides?: ProcessOverrides): Promise<void> {
     const effPresetId = overrides?.presetId ?? presetId;
     const effQuality = overrides?.quality ?? quality;
+    const effAvifQuality = overrides?.avifQuality ?? avifQuality;
     const effMode = overrides?.mode ?? compressMode;
     const effPreset = kind === "convert" ? findPreset(effPresetId) : undefined;
     const setProgress = (p: number) =>
@@ -194,26 +199,29 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       const bigger: ImageFormat[] = [];
 
       type JobRunner = "ffmpeg" | "avifenc";
-      const jobs: { format: ImageFormat; args: string[]; name: string; runner: JobRunner }[] = [];
+      const jobs: { format: ImageFormat; args: string[]; name: string; out: string; runner: JobRunner }[] = [];
+      // Nomes únicos: se `foto-1200w.webp` já existe, sai `foto-1200w-2.webp`.
+      // Nunca sobrescreve silenciosamente.
       if (kind === "convert" && effPreset) {
         for (const format of effPreset.formats) {
-          const name = buildOutputName(item.name, effPreset.id, effPreset.width, format);
-          const out = `${dir}/${name}`;
+          const base = buildOutputName(item.name, effPreset.id, effPreset.width, format);
+          const out = await uniquePath(dir, base);
+          const name = basename(out);
           if (format === "webp") {
-            jobs.push({ format, name, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "webp", effQuality) });
+            jobs.push({ format, name, out, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "webp", effQuality) });
           } else if (format === "jpg") {
-            jobs.push({ format, name, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "jpg", effPreset.jpegQuality ?? 82) });
+            jobs.push({ format, name, out, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "jpg", effPreset.jpegQuality ?? 82) });
           } else {
             // AVIF sempre via avifenc (libavif): preserva alpha, nível Cloudinary.
-            jobs.push({ format, name, runner: "avifenc", args: buildAvifencArgs(item.path, out, effPreset.avifQuality ?? 60) });
+            jobs.push({ format, name, out, runner: "avifenc", args: buildAvifencArgs(item.path, out, effAvifQuality) });
           }
         }
       } else {
         const ext = effMode === "jpg" ? "jpg" : "png";
-        const name = buildOutputName(item.name, "comprimido", null, ext);
-        const out = `${dir}/${name}`;
+        const base = buildOutputName(item.name, "comprimido", null, ext);
+        const out = await uniquePath(dir, base);
         jobs.push({
-          format: ext, name, runner: "ffmpeg",
+          format: ext, name: basename(out), out, runner: "ffmpeg",
           args: buildImageFfmpegArgs(item.path, out, null, ext, ext === "jpg" ? effQuality : 100),
         });
       }
@@ -225,7 +233,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
         } else {
           await runFfmpeg(job.args, jobId, setProgress);
         }
-        const outPath = `${dir}/${job.name}`;
+        const outPath = job.out;
         let outSize = 0;
         try {
           outSize = (await probeMedia(outPath)).sizeBytes;
@@ -314,12 +322,13 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
     }
   }
 
-  /** Troca preset/qualidade/modo e reconverte só as prontas (com os NOVOS valores). */
-  function reprocessAll(nextPresetId: string, nextQuality: number, nextMode: CompressMode): void {
+  /** Troca preset/qualidades/modo e reconverte só as prontas (com os NOVOS valores). */
+  function reprocessAll(nextPresetId: string, nextQuality: number, nextAvifQuality: number, nextMode: CompressMode): void {
     const targets = items.filter((i) => i.status === "pronto");
     if (kind === "convert") setPresetId(nextPresetId);
     else setCompressMode(nextMode);
     setQuality(nextQuality);
+    setAvifQuality(nextAvifQuality);
     if (targets.length === 0) return;
     const ids = new Set(targets.map((t) => t.id));
     setItems((prev) =>
@@ -329,9 +338,18 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
           : it,
       ),
     );
-    const overrides = { presetId: nextPresetId, quality: nextQuality, mode: nextMode };
+    const overrides = { presetId: nextPresetId, quality: nextQuality, avifQuality: nextAvifQuality, mode: nextMode };
     void (async () => {
       for (const t of targets) {
+        // Apaga as saídas anteriores: reconverter com outra qualidade
+        // regenera os MESMOS nomes em vez de empilhar -2, -3…
+        for (const o of t.outputs) {
+          try {
+            if (await fileExists(o.path)) await deleteFile(o.path);
+          } catch {
+            /* segue sem a limpeza */
+          }
+        }
         await processItem(t, overrides);
       }
     })();
@@ -345,14 +363,26 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
     setItems((prev) => prev.filter((item) => item.status !== "pronto"));
   }
 
-  const totalBefore = items.reduce((acc, item) => acc + item.sizeBytes, 0);
-  const primaryOf = (item: TauriItem): TauriOutput | undefined =>
-    item.outputs.find((o) => o.format === "webp") ?? item.outputs[0];
-  const totalAfter = items.reduce((acc, item) => {
-    if (item.status !== "pronto") return acc + item.sizeBytes;
-    return acc + (primaryOf(item)?.size ?? item.sizeBytes);
-  }, 0);
-  const totalSaved = items.length > 0 ? Math.max(0, calcSavedPct(totalBefore, totalAfter)) : 0;
+  const doneItems = items.filter((item) => item.status === "pronto");
+
+  /** Totais por formato: antes (soma dos originais) → depois (soma das saídas). */
+  function formatTotals(format: ImageFormat): { before: number; after: number; saved: number; count: number } {
+    const withFmt = doneItems.filter((item) => item.outputs.some((o) => o.format === format));
+    const before = withFmt.reduce((acc, item) => acc + item.sizeBytes, 0);
+    const after = withFmt.reduce(
+      (acc, item) => acc + (item.outputs.find((o) => o.format === format)?.size ?? item.sizeBytes),
+      0,
+    );
+    return {
+      before,
+      after,
+      saved: before > 0 ? Math.max(0, calcSavedPct(before, after)) : 0,
+      count: withFmt.length,
+    };
+  }
+
+  const webpTotals = formatTotals("webp");
+  const avifTotals = formatTotals("avif");
   const doneCount = items.filter((item) => item.status === "pronto").length;
   const processingCount = items.filter((item) => item.status === "processando").length;
 
@@ -377,7 +407,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                 key={p.id}
                 type="button"
                 aria-pressed={presetId === p.id}
-                onClick={() => reprocessAll(p.id, p.webpQuality ?? quality, compressMode)}
+                onClick={() => reprocessAll(p.id, p.webpQuality ?? quality, p.avifQuality ?? avifQuality, compressMode)}
                 className={`rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
                   presetId === p.id
                     ? "border-emerald-500 bg-emerald-500/10"
@@ -401,7 +431,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                   key={m}
                   type="button"
                   aria-pressed={compressMode === m}
-                  onClick={() => reprocessAll(presetId, quality, m)}
+                  onClick={() => reprocessAll(presetId, quality, avifQuality, m)}
                   className={`rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
                     compressMode === m
                       ? "border-emerald-500 bg-emerald-500/10"
@@ -432,9 +462,33 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
               max={MAX_QUALITY}
               step={1}
               value={quality}
-              onChange={(e) => reprocessAll(presetId, Number(e.target.value), compressMode)}
+              onChange={(e) => reprocessAll(presetId, Number(e.target.value), avifQuality, compressMode)}
               className="mt-2 w-full accent-emerald-400"
             />
+            <p className="mt-1 text-xs text-zinc-500">
+              Trocar o valor reconverte a lista. JPG fallback do preset 1200w sai em q82 fixo.
+            </p>
+          </div>
+        )}
+
+        {isConvert && (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+            <label htmlFor="tauri-avif-quality" className="text-sm font-medium text-zinc-200">
+              Qualidade AVIF: <span className="text-white">{avifQuality}</span>
+            </label>
+            <input
+              id="tauri-avif-quality"
+              type="range"
+              min={MIN_QUALITY}
+              max={MAX_QUALITY}
+              step={1}
+              value={avifQuality}
+              onChange={(e) => reprocessAll(presetId, quality, Number(e.target.value), compressMode)}
+              className="mt-2 w-full accent-emerald-400"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              60 = menor arquivo · 75 = equilíbrio (padrão) · 85+ = arquivístico, raramente vale.
+            </p>
           </div>
         )}
 
@@ -591,11 +645,25 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
         {items.length > 0 && (
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-4">
             <p className="text-sm text-zinc-400">
-              Total: <span className="text-zinc-200">{formatBytes(totalBefore)}</span> →{" "}
-              <span className="text-zinc-200">{formatBytes(totalAfter)}</span>{" "}
-              <span className="font-medium text-emerald-300">
-                (−{totalSaved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)
-              </span>
+              {webpTotals.count > 0 && (
+                <span className="mr-4">
+                  WebP: <span className="text-zinc-200">{formatBytes(webpTotals.before)}</span>{" "}
+                  → <span className="text-zinc-200">{formatBytes(webpTotals.after)}</span>{" "}
+                  <span className="font-medium text-emerald-300">
+                    (−{webpTotals.saved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)
+                  </span>
+                </span>
+              )}
+              {avifTotals.count > 0 && (
+                <span className="mr-4">
+                  AVIF: <span className="text-zinc-200">{formatBytes(avifTotals.before)}</span>{" "}
+                  → <span className="text-zinc-200">{formatBytes(avifTotals.after)}</span>{" "}
+                  <span className="font-medium text-emerald-300">
+                    (−{avifTotals.saved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)
+                  </span>
+                </span>
+              )}
+              {doneItems.length === 0 && <span>Nenhum concluído ainda.</span>}
               {processingCount > 0 && (
                 <span className="ml-2 text-amber-300">· {processingCount} processando…</span>
               )}

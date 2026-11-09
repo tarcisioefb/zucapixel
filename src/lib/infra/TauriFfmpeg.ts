@@ -87,6 +87,33 @@ export async function deleteFile(path: string): Promise<void> {
   await remove(path);
 }
 
+/** true se o path existe (via command Rust — não exige permissão fs:allow-exists). */
+export async function fileExists(path: string): Promise<boolean> {
+  try {
+    await probeMedia(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Devolve um caminho livre na pasta: `foto-1200w.webp`, `foto-1200w-2.webp`, …
+ * Nunca sobrescreve nada silenciosamente.
+ */
+export async function uniquePath(dir: string, name: string): Promise<string> {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let candidate = `${dir}/${name}`;
+  let n = 2;
+  while (await fileExists(candidate)) {
+    candidate = `${dir}/${stem}-${n}${ext}`;
+    n += 1;
+  }
+  return candidate;
+}
+
 /**
  * Roda o sidecar `avifenc` (NÃO recebe flags `-progress`: não são do ffmpeg).
  * Mesmo evento de progresso (`ffmpeg-progress`) para reaproveitar a UI.
