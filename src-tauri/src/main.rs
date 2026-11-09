@@ -366,6 +366,70 @@ async fn run_avifenc(
     Ok(job_id)
 }
 
+/// Roda o sidecar `binaries/pngquant` (quantização PNG lossy p/ paleta 256).
+/// Mesmo protocolo de progresso dos demais (fallback até 1.0 ao concluir).
+/// Com `--skip-if-larger`, saída maior nem é escrita (código 98) — o front
+/// detecta pela ausência do arquivo e marca como descartado.
+#[tauri::command]
+async fn run_pngquant(
+    app: tauri::AppHandle,
+    args: Vec<String>,
+    job_id: String,
+) -> Result<String, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
+    let sidecar = app
+        .shell()
+        .sidecar("pngquant")
+        .map_err(|e| format!("Sidecar pngquant indisponível: {e}"))?;
+
+    let (mut rx, _child) = sidecar
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Falha ao iniciar pngquant: {e}"))?;
+
+    let mut fallback_ticks: u64 = 0;
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stderr(_) | CommandEvent::Stdout(_) => {
+                fallback_ticks += 1;
+                let progress = (fallback_ticks as f64 * 0.05).clamp(0.0, 0.99);
+                let _ = app.emit(
+                    "ffmpeg-progress",
+                    FfmpegProgress {
+                        job_id: job_id.clone(),
+                        progress,
+                    },
+                );
+            }
+            CommandEvent::Error(msg) => {
+                return Err(format!("Erro no pngquant: {msg}"));
+            }
+            CommandEvent::Terminated(status) => {
+                if let Some(code) = status.code {
+                    // 98 = --skip-if-larger pulou (saída seria maior): não é erro.
+                    if code != 0 && code != 98 {
+                        return Err(format!("pngquant saiu com código {code}"));
+                    }
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let _ = app.emit(
+        "ffmpeg-progress",
+        FfmpegProgress {
+            job_id: job_id.clone(),
+            progress: 1.0,
+        },
+    );
+
+    Ok(job_id)
+}
+
 /// Lista arquivos de um diretório de saída (`$APPDATA/out`, `~/Downloads`, ...).
 /// Retorna nome + caminho + tamanho. Ignora subdiretórios e erros por arquivo.
 #[tauri::command]
@@ -414,6 +478,7 @@ fn main() {
             probe_video,
             run_ffmpeg,
             run_avifenc,
+            run_pngquant,
             list_outputs
         ])
         .run(tauri::generate_context!())

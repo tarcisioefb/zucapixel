@@ -11,6 +11,7 @@ import {
   IMAGE_PRESETS,
   buildAvifencArgs,
   buildImageFfmpegArgs,
+  buildPngquantArgs,
   type ImageFormat,
 } from "../lib/convert/presets";
 import { checkImage } from "../lib/convert/preflight";
@@ -41,6 +42,7 @@ import {
   revealFile,
   runAvifenc,
   runFfmpeg,
+  runPngquant,
   uniquePath,
 } from "../lib/infra/TauriFfmpeg";
 
@@ -231,7 +233,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       const outputs: TauriOutput[] = [];
       const bigger: ImageFormat[] = [];
 
-      type JobRunner = "ffmpeg" | "avifenc";
+      type JobRunner = "ffmpeg" | "avifenc" | "pngquant";
       const jobs: { format: ImageFormat; args: string[]; name: string; out: string; runner: JobRunner }[] = [];
       // Nomes únicos: se `foto-1200w.webp` já existe, sai `foto-1200w-2.webp`.
       // Nunca sobrescreve silenciosamente.
@@ -253,16 +255,27 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
         const ext = effMode === "jpg" ? "jpg" : "png";
         const base = buildOutputName(item.name, "comprimido", null, ext);
         const out = await uniquePath(dir, base);
-        jobs.push({
-          format: ext, name: basename(out), out, runner: "ffmpeg",
-          args: buildImageFfmpegArgs(item.path, out, null, ext, ext === "jpg" ? effQuality : 100),
-        });
+        if (ext === "png") {
+          // PNG via pngquant: quantização lossy p/ paleta 256 (bem além do
+          // level 9 do ffmpeg). Preserva alpha.
+          jobs.push({
+            format: ext, name: basename(out), out, runner: "pngquant",
+            args: buildPngquantArgs(item.path, out),
+          });
+        } else {
+          jobs.push({
+            format: ext, name: basename(out), out, runner: "ffmpeg",
+            args: buildImageFfmpegArgs(item.path, out, null, ext, effQuality),
+          });
+        }
       }
 
       for (const job of jobs) {
         const jobId = `${item.id}-${job.format}`;
         if (job.runner === "avifenc") {
           await runAvifenc(job.args, jobId, setProgress);
+        } else if (job.runner === "pngquant") {
+          await runPngquant(job.args, jobId, setProgress);
         } else {
           await runFfmpeg(job.args, jobId, setProgress);
         }

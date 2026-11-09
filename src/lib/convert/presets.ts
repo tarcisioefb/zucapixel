@@ -128,7 +128,7 @@ export const IMAGE_PRESETS: ImagePreset[] = [
     compressOnly: true,
     keepOriginal: false,
     description:
-      'Estilo iLoveIMG Compress: PNG lossy-less otimizado (-pred mixed, level 9) sem resize. Fase 2 (vips/pngquant) comprime mais; fase 1 já tira 20-50%.',
+      'Estilo iLoveIMG Compress: quantização lossy p/ paleta 256 (pngquant q65-80) sem resize, com alpha. Se sair maior, é descartado.',
     maxKBWarning: 300,
   },
 ];
@@ -405,6 +405,33 @@ export function buildAvifencArgs(
     '-y', '420',
     input,
     output,
+  ];
+}
+
+/**
+ * Monta os args do `pngquant` (quantização lossy p/ paleta 256 + strip).
+ * `--skip-if-larger` nem escreve a saída se ficar maior (o app trata
+ * a ausência do arquivo como "descartado").
+ */
+export function buildPngquantArgs(
+  input: string,
+  output: string,
+  minQuality = 65,
+  maxQuality = 80,
+): string[] {
+  if (!input || !output) throw new Error('input/output são obrigatórios.');
+  if (minQuality < 0 || maxQuality > 100 || minQuality > maxQuality) {
+    throw new Error(`Faixa de qualidade inválida: ${minQuality}-${maxQuality}`);
+  }
+
+  return [
+    '--quality', `${Math.round(minQuality)}-${Math.round(maxQuality)}`,
+    '--speed', '1',
+    '--strip',
+    '--skip-if-larger',
+    '--force',
+    '--output', output,
+    input,
   ];
 }
 

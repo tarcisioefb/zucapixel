@@ -155,6 +155,22 @@ export async function runAvifenc(
   }
 }
 
+/** Roda o sidecar `pngquant` (mesmo protocolo de progresso dos demais). */
+export async function runPngquant(
+  args: string[],
+  jobId: string,
+  onProgress?: (p: number) => void,
+): Promise<void> {
+  const unlisten = await listen<FfmpegProgressPayload>("ffmpeg-progress", (event) => {
+    if (event.payload.jobId === jobId) onProgress?.(event.payload.progress);
+  });
+  try {
+    await invoke<string>("run_pngquant", { args, jobId });
+  } finally {
+    unlisten();
+  }
+}
+
 /**
  * Pasta padrão de saída: `~/Pictures/Otimizadas` (criada se não existir).
  * Coberta pelo `fs:scope` ($PICTURE/**) das capabilities.

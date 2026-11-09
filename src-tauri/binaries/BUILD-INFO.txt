@@ -106,4 +106,15 @@ públicos, ou avaliar implicações GPL). Este arquivo apenas registra o fato.
   estão empacotadas — funciona nesta máquina porque o Homebrew está instalado.
   Para release público, empacotar as dylibs ao lado do sidecar (ou build
   estático do avifenc). Uso próprio: OK.
-- Args usados pelo app: `avifenc -q <0-100> -s 6 -j all -y 420 <in> <out>`.
+-   Args usados pelo app: `avifenc -q <0-100> -s 6 -j all -y 420 <in> <out>`.
+
+## pngquant sidecar — PNG quantizado (lossy p/ paleta 256)
+- Arquivo: `src-tauri/binaries/pngquant-aarch64-apple-darwin`
+- Origem: Homebrew `pngquant 3.0.3` (`/opt/homebrew/bin/pngquant`), copiado com
+  `cp` + `chmod +x`. Deps Homebrew: little-cms2, libpng (sistema: zlib, libiconv).
+- Mesmo tratamento do avifenc: `install_name_tool -add_rpath` p/ os dois prefixos
+  do Homebrew + `codesign --force --sign -`.
+- Testado: PNG 32KB (gradiente) → 5,6KB pal8 com alpha; PNG já otimizado é
+  pulado via `--skip-if-larger` (exit 98, tratado como "descartado", não erro).
+- Args usados pelo app: `pngquant --quality 65-80 --speed 1 --strip --skip-if-larger --force --output <out> <in>`.
+- Mesma ressalva de distribuição do avifenc: dylibs não empacotadas.
