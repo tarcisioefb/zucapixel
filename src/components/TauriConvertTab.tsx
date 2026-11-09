@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import {
   IMAGE_PRESETS,
-  buildAvifFfmpegArgs,
+  buildAvifencArgs,
   buildImageFfmpegArgs,
   type ImageFormat,
 } from "../lib/convert/presets";
@@ -27,10 +27,9 @@ import {
   onWindowDrop,
   openFolder,
   pickImageFiles,
-  pixFmtHasAlpha,
   probeMedia,
-  probePixFmt,
   revealFile,
+  runAvifenc,
   runFfmpeg,
 } from "../lib/infra/TauriFfmpeg";
 
@@ -164,16 +163,6 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, progress: p } : it)));
     try {
       const dims = await dimsOf(item.path);
-      // libaom/svtav1 deste sidecar não encodam alpha: se a entrada tem
-      // transparência, o AVIF é pulado (WebP preserva via yuva420p).
-      let hasAlpha = false;
-      if (/\.(png|webp|avif)$/i.test(item.path)) {
-        try {
-          hasAlpha = pixFmtHasAlpha(await probePixFmt(item.path));
-        } catch {
-          hasAlpha = false;
-        }
-      }
       const targetWidth = kind === "convert" ? (effPreset?.width ?? null) : null;
       // BAD_FILENAME não bloqueia: a saída já sai slugificada.
       const issues = checkImage({
@@ -203,24 +192,20 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       const dir = outDirRef.current;
       const outputs: TauriOutput[] = [];
       const bigger: ImageFormat[] = [];
-      let avifSkipped = false;
-      let alphaSkipped = false;
 
-      const jobs: { format: ImageFormat; args: string[]; name: string }[] = [];
+      type JobRunner = "ffmpeg" | "avifenc";
+      const jobs: { format: ImageFormat; args: string[]; name: string; runner: JobRunner }[] = [];
       if (kind === "convert" && effPreset) {
         for (const format of effPreset.formats) {
           const name = buildOutputName(item.name, effPreset.id, effPreset.width, format);
           const out = `${dir}/${name}`;
           if (format === "webp") {
-            jobs.push({ format, name, args: buildImageFfmpegArgs(item.path, out, effPreset.width, "webp", effQuality) });
+            jobs.push({ format, name, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "webp", effQuality) });
           } else if (format === "jpg") {
-            jobs.push({ format, name, args: buildImageFfmpegArgs(item.path, out, effPreset.width, "jpg", effPreset.jpegQuality ?? 82) });
-          } else if (!hasAlpha) {
-            jobs.push({ format, name, args: buildAvifFfmpegArgs(item.path, out, effPreset.width, effPreset.avifQuality ?? 60) });
+            jobs.push({ format, name, runner: "ffmpeg", args: buildImageFfmpegArgs(item.path, out, effPreset.width, "jpg", effPreset.jpegQuality ?? 82) });
           } else {
-            avifSkipped = true;
-            alphaSkipped = true;
-            continue;
+            // AVIF sempre via avifenc (libavif): preserva alpha, nível Cloudinary.
+            jobs.push({ format, name, runner: "avifenc", args: buildAvifencArgs(item.path, out, effPreset.avifQuality ?? 60) });
           }
         }
       } else {
@@ -228,14 +213,18 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
         const name = buildOutputName(item.name, "comprimido", null, ext);
         const out = `${dir}/${name}`;
         jobs.push({
-          format: ext, name,
+          format: ext, name, runner: "ffmpeg",
           args: buildImageFfmpegArgs(item.path, out, null, ext, ext === "jpg" ? effQuality : 100),
         });
       }
 
       for (const job of jobs) {
         const jobId = `${item.id}-${job.format}`;
-        await runFfmpeg(job.args, jobId, setProgress);
+        if (job.runner === "avifenc") {
+          await runAvifenc(job.args, jobId, setProgress);
+        } else {
+          await runFfmpeg(job.args, jobId, setProgress);
+        }
         const outPath = `${dir}/${job.name}`;
         let outSize = 0;
         try {
@@ -263,8 +252,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                   ...it,
                   status: "erro" as const,
                   biggerFormats: bigger,
-                  avifSkipped,
-                  avifAlphaSkipped: alphaSkipped,
+                  avifSkipped: false,
+                  avifAlphaSkipped: false,
                   error:
                     "Saída ficou maior que o original — o arquivo já está otimizado, mantenha como está.",
                 }
@@ -287,8 +276,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                 outHeight: dims?.h,
                 outputs,
                 biggerFormats: bigger,
-                avifSkipped,
-                avifAlphaSkipped: alphaSkipped,
+                avifSkipped: false,
+                avifAlphaSkipped: false,
                 error: undefined,
               }
             : it,
@@ -535,9 +524,9 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                                   {f.toUpperCase()} — ficou maior que o original, descartado
                                 </span>
                               ))}
-                            {item.avifAlphaSkipped && (
+                            {item.avifSkipped && (
                               <span className="text-xs text-zinc-600">
-                                AVIF pulado: transparência (use WebP)
+                                AVIF indisponível neste arquivo
                               </span>
                             )}
                           </span>

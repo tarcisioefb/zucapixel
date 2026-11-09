@@ -90,3 +90,20 @@ públicos, ou avaliar implicações GPL). Este arquivo apenas registra o fato.
 ## Tamanho
 - 52160568 bytes (50M) — `stat -f '%z'`: 52160568
 - Estático (sem dependências externas; file = Mach-O 64-bit arm64)
+
+## avifenc sidecar — AVIF COM ALPHA (libavif de referência)
+- Arquivo: `src-tauri/binaries/avifenc-aarch64-apple-darwin` (147.600 bytes)
+- Origem: Homebrew `libavif 1.4.2` (`/opt/homebrew/bin/avifenc`, aom enc 3.14.1),
+  copiado com `cp` + `chmod +x`.
+- Por que um 2º sidecar: o libaom-av1/svtav1 DESTE build ffmpeg NÃO aceitam pixel
+  formats com alpha (`Incompatible pixel format 'yuva420p'`), então AVIF com
+  transparência é impossível via ffmpeg. O `avifenc` preserva o alpha (testado:
+  PNG rgba → AVIF com stream alpha dedicada, menor que o PNG).
+- Ajuste de linkage: o binário usa `@rpath/libavif.16.dylib`, que quebra fora do
+  Cellar → aplicado `install_name_tool -add_rpath /opt/homebrew/opt/libavif/lib`
+  + `codesign --force --sign -` (re-assinado ad-hoc).
+- ATENÇÃO distribuição: as dylibs (libavif, libpng, jpeg-turbo do Homebrew) NÃO
+  estão empacotadas — funciona nesta máquina porque o Homebrew está instalado.
+  Para release público, empacotar as dylibs ao lado do sidecar (ou build
+  estático do avifenc). Uso próprio: OK.
+- Args usados pelo app: `avifenc -q <0-100> -s 6 -j all -y 420 <in> <out>`.

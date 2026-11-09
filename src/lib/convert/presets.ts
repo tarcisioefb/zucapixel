@@ -335,6 +335,28 @@ export function buildAvifFfmpegArgs(
 }
 
 /**
+ * Monta os args do `avifenc` (libavif de referência, COM alpha).
+ * Qualidade 0–100 (`-q`), velocidade 6, 4:2:0, todas as threads.
+ */
+export function buildAvifencArgs(
+  input: string,
+  output: string,
+  quality: number,
+): string[] {
+  if (!input || !output) throw new Error('input/output são obrigatórios.');
+  if (quality < 0 || quality > 100) throw new Error(`Qualidade fora de 0–100: ${quality}`);
+
+  return [
+    '-q', String(Math.round(quality)),
+    '-s', '6',
+    '-j', 'all',
+    '-y', '420',
+    input,
+    output,
+  ];
+}
+
+/**
  * Monta os args do ffmpeg para UM vídeo.
  * Sempre: scale anti-upscale + fps + `-t durationCap` + `-an` (mudo,
  * padrão para bg/hero) + `faststart` no MP4 + `yuv420p` (compat. máxima).

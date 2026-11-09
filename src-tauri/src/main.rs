@@ -250,6 +250,68 @@ async fn probe_pix_fmt(app: tauri::AppHandle, path: String) -> Result<Option<Str
     Ok(None)
 }
 
+/// Roda o sidecar `binaries/avifenc` (libavif de referência, COM alpha).
+/// Mesmo protocolo de progresso do `run_ffmpeg` (avifenc não emite
+/// `out_time_ms`, então a barra usa o fallback até concluir com 1.0).
+#[tauri::command]
+async fn run_avifenc(
+    app: tauri::AppHandle,
+    args: Vec<String>,
+    job_id: String,
+) -> Result<String, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+
+    let sidecar = app
+        .shell()
+        .sidecar("avifenc")
+        .map_err(|e| format!("Sidecar avifenc indisponível: {e}"))?;
+
+    let (mut rx, _child) = sidecar
+        .args(&args)
+        .spawn()
+        .map_err(|e| format!("Falha ao iniciar avifenc: {e}"))?;
+
+    let mut fallback_ticks: u64 = 0;
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stderr(_) | CommandEvent::Stdout(_) => {
+                fallback_ticks += 1;
+                let progress = (fallback_ticks as f64 * 0.05).clamp(0.0, 0.99);
+                let _ = app.emit(
+                    "ffmpeg-progress",
+                    FfmpegProgress {
+                        job_id: job_id.clone(),
+                        progress,
+                    },
+                );
+            }
+            CommandEvent::Error(msg) => {
+                return Err(format!("Erro no avifenc: {msg}"));
+            }
+            CommandEvent::Terminated(status) => {
+                if let Some(code) = status.code {
+                    if code != 0 {
+                        return Err(format!("avifenc saiu com código {code}"));
+                    }
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let _ = app.emit(
+        "ffmpeg-progress",
+        FfmpegProgress {
+            job_id: job_id.clone(),
+            progress: 1.0,
+        },
+    );
+
+    Ok(job_id)
+}
+
 /// Lista arquivos de um diretório de saída (`$APPDATA/out`, `~/Downloads`, ...).
 /// Retorna nome + caminho + tamanho. Ignora subdiretórios e erros por arquivo.
 #[tauri::command]
@@ -296,6 +358,7 @@ fn main() {
             probe_media,
             probe_pix_fmt,
             run_ffmpeg,
+            run_avifenc,
             list_outputs
         ])
         .run(tauri::generate_context!())
