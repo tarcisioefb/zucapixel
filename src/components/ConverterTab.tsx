@@ -126,6 +126,7 @@ async function convertImage(
 
 export function ConverterTab() {
   const [presetId, setPresetId] = useState<string>("original");
+  const [bulkFormat, setBulkFormat] = useState<ImageFormat>("webp");
   const [quality, setQuality] = useState<number>(80);
   const [items, setItems] = useState<ConvertItem[]>([]);
   const [dragging, setDragging] = useState<boolean>(false);
@@ -348,26 +349,34 @@ export function ConverterTab() {
     });
   }
 
-  /** Baixa o WebP de todas as prontas (principal p/ Elementor). */
+  /** Baixa o formato escolhido de todas as prontas. */
   function downloadAll(): void {
     const ready = items.filter(
-      (item) => item.status === "pronto" && item.outputs.length > 0,
+      (item) =>
+        item.status === "pronto" &&
+        item.outputs.some((o) => o.format === bulkFormat),
     );
     void (async () => {
       for (const item of ready) {
-        const primary = item.outputs[0];
-        downloadBlob(primary.url, primary.name);
+        const match = item.outputs.find((o) => o.format === bulkFormat);
+        if (!match) continue;
+        downloadBlob(match.url, match.name);
         await new Promise((resolve) => setTimeout(resolve, 350));
       }
     })();
   }
 
-  const primaryOf = (item: ConvertItem): ConvertOutput | undefined => item.outputs[0];
+  const bulkCount = items.filter(
+    (item) =>
+      item.status === "pronto" && item.outputs.some((o) => o.format === bulkFormat),
+  ).length;
+
   const totalBefore = items.reduce((acc, item) => acc + item.sizeBytes, 0);
-  const totalAfter = items.reduce(
-    (acc, item) => acc + (primaryOf(item)?.size ?? item.sizeBytes),
-    0,
-  );
+  const totalAfter = items.reduce((acc, item) => {
+    if (item.status !== "pronto") return acc + item.sizeBytes;
+    const match = item.outputs.find((o) => o.format === bulkFormat);
+    return acc + (match?.size ?? item.sizeBytes);
+  }, 0);
   const totalSaved = items.length > 0 ? Math.max(0, calcSavedPct(totalBefore, totalAfter)) : 0;
   const doneCount = items.filter((item) => item.status === "pronto").length;
   const processingCount = items.filter((item) => item.status === "processando").length;
@@ -484,19 +493,14 @@ export function ConverterTab() {
                   <tr className="border-b border-zinc-800 bg-zinc-900 text-xs uppercase tracking-wide text-zinc-500">
                     <th className="px-4 py-3 font-medium">Arquivo</th>
                     <th className="px-4 py-3 font-medium">Antes</th>
-                    <th className="px-4 py-3 font-medium">Depois (WebP)</th>
-                    <th className="px-4 py-3 font-medium">Downloads</th>
+                    <th className="px-4 py-3 font-medium">Depois</th>
+                    <th className="px-4 py-3 font-medium">Arquivos</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => {
-                    const primary = primaryOf(item);
-                    const saved =
-                      item.status === "pronto" && primary
-                        ? Math.max(0, calcSavedPct(item.sizeBytes, primary.size))
-                        : 0;
                     return (
                       <tr key={item.id} className="border-b border-zinc-800/60 last:border-0">
                         <td className="max-w-56 px-4 py-3">
@@ -526,19 +530,48 @@ export function ConverterTab() {
                         <td className="whitespace-nowrap px-4 py-3 text-zinc-400">
                           {formatBytes(item.sizeBytes)}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3">
-                          {item.status === "pronto" && primary ? (
-                            <span className="flex flex-wrap items-center gap-2">
-                              <span className="text-zinc-200">{formatBytes(primary.size)}</span>
-                              <span
-                                className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                                  saved >= 30
-                                    ? "bg-emerald-500/20 text-emerald-300"
-                                    : "bg-amber-500/20 text-amber-300"
-                                }`}
-                              >
-                                −{saved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
-                              </span>
+                        <td className="px-4 py-3">
+                          {item.status === "pronto" ? (
+                            <span className="flex flex-col gap-1.5">
+                              {item.outputs
+                                .filter((o) => o.format !== "jpg")
+                                .map((o) => {
+                                  const s = Math.max(
+                                    0,
+                                    calcSavedPct(item.sizeBytes, o.size),
+                                  );
+                                  return (
+                                    <span
+                                      key={o.format}
+                                      className="flex flex-wrap items-center gap-2 whitespace-nowrap"
+                                    >
+                                      <span className="w-10 text-[11px] font-semibold text-zinc-500">
+                                        {o.format.toUpperCase()}
+                                      </span>
+                                      <span className="text-zinc-200">
+                                        {formatBytes(o.size)}
+                                      </span>
+                                      <span
+                                        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                                          s >= 30
+                                            ? "bg-emerald-500/20 text-emerald-300"
+                                            : "bg-amber-500/20 text-amber-300"
+                                        }`}
+                                      >
+                                        −
+                                        {s.toLocaleString("pt-BR", {
+                                          maximumFractionDigits: 1,
+                                        })}
+                                        %
+                                      </span>
+                                    </span>
+                                  );
+                                })}
+                              {item.avifSkipped && (
+                                <span className="text-xs text-zinc-600">
+                                  AVIF — sem suporte neste navegador
+                                </span>
+                              )}
                             </span>
                           ) : item.status === "processando" ? (
                             <span className="text-zinc-500">convertendo…</span>
@@ -610,15 +643,40 @@ export function ConverterTab() {
                 <span className="ml-2 text-amber-300">· {processingCount} convertendo…</span>
               )}
             </p>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                role="group"
+                aria-label="Formato do download em lote"
+                className="flex overflow-hidden rounded-lg border border-zinc-700"
+              >
+                {(["webp", "avif"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={bulkFormat === f}
+                    onClick={() => setBulkFormat(f)}
+                    className={`px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                      bulkFormat === f
+                        ? "bg-zinc-100 text-zinc-950"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {f.toUpperCase()}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 onClick={downloadAll}
-                disabled={doneCount === 0}
-                title="Baixar o WebP de todas as imagens prontas (vão para a pasta Downloads)"
+                disabled={bulkCount === 0}
+                title={
+                  bulkFormat === "avif" && bulkCount === 0
+                    ? "Nenhum AVIF gerado — este navegador não encoda AVIF (fase 2: Tauri)"
+                    : `Baixar ${bulkFormat.toUpperCase()} de todas as imagens prontas (vão para a pasta Downloads)`
+                }
                 className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Baixar WebP de todas ({doneCount})
+                Baixar {bulkFormat.toUpperCase()} de todas ({bulkCount})
               </button>
               <button
                 type="button"
