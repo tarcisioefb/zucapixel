@@ -76,7 +76,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const [presetId, setPresetId] = useState<string>("original");
   const [compressMode, setCompressMode] = useState<CompressMode>("jpg");
   const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 85);
-  const [avifQuality, setAvifQuality] = useState<number>(75);
+  const [avifQuality, setAvifQuality] = useState<number>(65);
   const [items, setItems] = useState<TauriItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
   const outDirRef = useRef<string | null>(null);
@@ -487,7 +487,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
               className="mt-2 w-full accent-emerald-400"
             />
             <p className="mt-1 text-xs text-zinc-500">
-              60 = menor arquivo · 75 = equilíbrio (padrão) · 85+ = arquivístico, raramente vale.
+              60 = menor arquivo · 65 = equilíbrio (padrão) · 85+ = arquivístico, raramente vale.
             </p>
           </div>
         )}

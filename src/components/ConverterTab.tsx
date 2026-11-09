@@ -25,7 +25,7 @@ export const CONVERT_PRESETS: ImagePreset[] = [
     width: null,
     formats: ["webp", "avif"],
     webpQuality: 85,
-    avifQuality: 75,
+    avifQuality: 65,
     description: "Mantém as dimensões do arquivo, só converte o formato. O resize é opcional.",
     maxKBWarning: 300,
   },
