@@ -6,7 +6,7 @@
  * via libaom-av1 (nível Cloudinary), resize sem upscale via filtro scale.
  */
 import { useEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import {
   IMAGE_PRESETS,
   buildAvifencArgs,
@@ -18,6 +18,15 @@ import { calcSavedPct } from "../lib/convert/jobs";
 import { buildOutputName } from "../lib/convert/slugify";
 import { CONVERT_PRESETS, findPreset } from "./ConverterTab";
 import { formatBytes, loadImageElement, makeId } from "./fileUtils";
+import {
+  DEFAULT_CLIENT,
+  getActiveClientId,
+  loadClients,
+  makeClient,
+  saveClients,
+  setActiveClientId as persistActiveClientId,
+  type ClientPreset,
+} from "../lib/convert/clients";
 import {
   basename,
   convertFileSrc,
@@ -84,10 +93,20 @@ function GearIcon(): JSX.Element {
 export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const [presetId, setPresetId] = useState<string>("original");
   const [compressMode, setCompressMode] = useState<CompressMode>("jpg");
-  const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 85);
-  const [avifQuality, setAvifQuality] = useState<number>(65);
+  const [clients, setClients] = useState<ClientPreset[]>(() => loadClients());
+  const [activeClientId, setActiveClientId] = useState<string>(() => {
+    const stored = getActiveClientId();
+    return loadClients().some((c) => c.id === stored) ? stored : DEFAULT_CLIENT.id;
+  });
+  const activeClient = clients.find((c) => c.id === activeClientId) ?? DEFAULT_CLIENT;
+  const [quality, setQuality] = useState<number>(() =>
+    kind === "compress" ? activeClient.jpgQuality : activeClient.webpQuality,
+  );
+  const [avifQuality, setAvifQuality] = useState<number>(() => activeClient.avifQuality);
   const [showQuality, setShowQuality] = useState<boolean>(false);
   const [windowDragging, setWindowDragging] = useState<boolean>(false);
+  const [clientFormOpen, setClientFormOpen] = useState<boolean>(false);
+  const [newClientName, setNewClientName] = useState<string>("");
   const [items, setItems] = useState<TauriItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
   const outDirRef = useRef<string | null>(null);
@@ -380,6 +399,42 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
     })();
   }
 
+  /** Troca de cliente: aplica as qualidades salvas e reconverte as prontas. */
+  function applyClient(id: string): void {
+    const c = clients.find((x) => x.id === id) ?? DEFAULT_CLIENT;
+    persistActiveClientId(id);
+    setActiveClientId(id);
+    const webpQ = kind === "compress" ? c.jpgQuality : c.webpQuality;
+    setQuality(webpQ);
+    setAvifQuality(c.avifQuality);
+    reprocessAll(presetId, webpQ, c.avifQuality, compressMode);
+  }
+
+  /** Salva os sliders atuais como um novo cliente. */
+  function saveCurrentAsClient(): void {
+    const name = newClientName.trim();
+    if (!name) return;
+    const c = makeClient(name, {
+      webpQuality: kind === "convert" ? quality : activeClient.webpQuality,
+      avifQuality,
+      jpgQuality: kind === "compress" ? quality : activeClient.jpgQuality,
+    });
+    const next = [...clients, c];
+    setClients(next);
+    saveClients(next);
+    setNewClientName("");
+    setClientFormOpen(false);
+    applyClient(c.id);
+  }
+
+  function deleteClient(id: string): void {
+    if (id === DEFAULT_CLIENT.id) return;
+    const next = clients.filter((c) => c.id !== id);
+    setClients(next);
+    saveClients(next);
+    if (activeClientId === id) applyClient(DEFAULT_CLIENT.id);
+  }
+
   function removeItem(id: string): void {
     setItems((prev) => prev.filter((item) => item.id !== id));
   }
@@ -437,6 +492,66 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
           <h2 className="text-lg font-semibold text-white">{title}</h2>
           <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
         </header>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="client-select" className="text-sm text-zinc-400">
+            Cliente:
+          </label>
+          <select
+            id="client-select"
+            value={activeClientId}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => applyClient(e.target.value)}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} — WebP {c.webpQuality} · AVIF {c.avifQuality} · JPG {c.jpgQuality}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setClientFormOpen((v) => !v)}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          >
+            ＋ Novo
+          </button>
+          {activeClientId !== DEFAULT_CLIENT.id && (
+            <button
+              type="button"
+              onClick={() => deleteClient(activeClientId)}
+              title={`Excluir cliente ${activeClient.name}`}
+              className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-500 transition hover:border-red-500 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            >
+              Excluir
+            </button>
+          )}
+        </div>
+
+        {clientFormOpen && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+            <input
+              type="text"
+              value={newClientName}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setNewClientName(e.target.value)}
+              placeholder="Nome do cliente (ex.: Padaria Pão Dourado)"
+              maxLength={40}
+              className="min-w-52 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-white placeholder:text-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            />
+            <span className="text-xs text-zinc-500">
+              usa as qualidades atuais: WebP {quality} · AVIF {avifQuality} · JPG{" "}
+              {kind === "compress" ? quality : activeClient.jpgQuality}
+            </span>
+            <button
+              type="button"
+              onClick={saveCurrentAsClient}
+              disabled={!newClientName.trim()}
+              className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Salvar
+            </button>
+          </div>
+        )}
 
         {isConvert ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="group" aria-label="Preset de conversão">
