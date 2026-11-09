@@ -20,10 +20,10 @@ Foco: **imagem primeiro** (uso diário), vídeo como secundário.
 ## Should (pós-MVP)
 - [ ] PNG quantizado (pngquant/oxipng via vips sidecar ou oxipng estático — ffmpeg sozinho comprime pouco PNG)
 - [ ] Detector duplicadas por hash (evita re-converter o mesmo arquivo)
-- [ ] WP Connect via REST (`/wp-json/wp/v2/media` + `alt_text`, Application Passwords, upload em lote)
 - [ ] Audit URL (cola URL Elementor → checa LCP/lazy/dims/OG)
 - [ ] `tauri build` → `.app`/`.dmg` instalável + updater
 
 ## Won't (agora)
 - XML-RPC, escrita em `_elementor_data`, SEO meta via app, AVIF como único formato.
+- WP Connect (upload automático via REST) — decisão do usuário: upload manual no WP, app entrega tabela alt + CSV + zip prontos.
 - vips sidecar p/ AVIF (avifenc resolveu melhor).
