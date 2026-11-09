@@ -57,11 +57,11 @@ export async function runFfmpeg(
     if (event.payload.jobId === jobId) onProgress?.(event.payload.progress);
   });
   try {
-    // NOTE: a chave precisa ser snake_case (`job_id`) — o invoke NÃO converte
-    // camelCase automaticamente; com `jobId` o Rust rejeita ("missing argument").
+    // NOTE: o invoke USA camelCase (`jobId`) — o Tauri v2 converte p/ snake_case
+    // sozinho no Rust. Com `job_id` ele rejeita ("missing required key jobId").
     await invoke<string>("run_ffmpeg", {
       args: ["-progress", "pipe:1", "-nostats", ...args],
-      job_id: jobId,
+      jobId,
     });
   } finally {
     unlisten();
