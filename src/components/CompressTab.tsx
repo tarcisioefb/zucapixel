@@ -1,20 +1,31 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import { getImagePreset } from "../lib/convert/presets";
 import { checkImage } from "../lib/convert/preflight";
 import { calcSavedPct } from "../lib/convert/jobs";
+import { buildOutputName } from "../lib/convert/slugify";
+import {
+  canvasToBlob,
+  formatBytes,
+  loadImageElement,
+  makeId,
+} from "./fileUtils";
 
 type CompressMode = "jpg" | "png";
 
-type CompressStatus = "pronto" | "erro";
+type CompressStatus = "processando" | "pronto" | "erro";
 
 interface CompressItem {
   id: string;
   name: string;
   sizeBytes: number;
   width?: number;
+  height?: number;
   status: CompressStatus;
+  file: File;
   outputSize?: number;
+  outputUrl?: string;
+  outputName?: string;
   error?: string;
 }
 
@@ -22,55 +33,50 @@ const ACCEPT = "image/jpeg,image/png";
 const MIN_QUALITY = 50;
 const MAX_QUALITY = 95;
 const DEFAULT_QUALITY = 75;
-/** compress-only não faz resize: a largura real viria do backend (probe ffmpeg). */
-const FALLBACK_WIDTH = 1920;
 
 const JPG_PRESET = getImagePreset("compress-jpg");
 const PNG_PRESET = getImagePreset("compress-png");
 
-/** Id único sem dependência externa. */
-function makeId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `compress-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/** Hash simples e determinístico (variação estável por nome de arquivo). */
-function hashName(name: string): number {
-  let h = 0;
-  for (let i = 0; i < name.length; i += 1) {
-    h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  return h;
+interface CompressedImage {
+  blob: Blob;
+  width: number;
+  height: number;
 }
 
 /**
- * SIMULAÇÃO front-only para demo (sem backend rodando).
- * JPG: fator = 1 - (100-q)/45, clamped 0.25–0.9 (q75 ≈ 0.44, ~-56%)
- * PNG: fator 0.65.
- * Variação determinística de ±5% por nome para a demo não ficar idêntica.
+ * Compressão REAL no navegador (canvas), sem backend:
+ * - JPG: re-encode `image/jpeg` com a qualidade escolhida + strip EXIF
+ *   (o canvas descarta metadados). Fundo branco para PNG com alpha,
+ *   senão a transparência vira preta no JPG.
+ * - PNG: re-encode `image/png` lossless (fase 2 pngquant comprime mais).
+ * O <img> já aplica a orientação EXIF, então o canvas sai correto.
  */
-function simulateOutputSize(
-  name: string,
-  sizeBytes: number,
+async function compressImage(
+  file: File,
   mode: CompressMode,
   quality: number,
-): number {
-  const variation = ((hashName(name) % 11) - 5) / 100;
-  const base = mode === "jpg" ? 1 - (100 - quality) / 45 : 0.65;
-  const factor = Math.min(0.9, Math.max(0.25, base + variation));
-  return Math.max(1, Math.round(sizeBytes * factor));
-}
-
-/** Formata bytes em pt-BR (B / KB / MB). */
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} KB`;
-  const mb = kb / 1024;
-  return `${mb.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`;
+): Promise<CompressedImage> {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await loadImageElement(src);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas");
+    if (mode === "jpg") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(img, 0, 0);
+    const blob =
+      mode === "jpg"
+        ? await canvasToBlob(canvas, "image/jpeg", quality / 100)
+        : await canvasToBlob(canvas, "image/png");
+    return { blob, width: img.naturalWidth, height: img.naturalHeight };
+  } finally {
+    URL.revokeObjectURL(src);
+  }
 }
 
 export function CompressTab() {
@@ -79,10 +85,90 @@ export function CompressTab() {
   const [items, setItems] = useState<CompressItem[]>([]);
   const [dragging, setDragging] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const urlsRef = useRef<string[]>([]);
+
+  // Libera object URLs ao desmontar (remove/clear já revogam individualmente).
+  useEffect(() => {
+    const bag = urlsRef.current;
+    return () => {
+      bag.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  function trackUrl(url: string): void {
+    urlsRef.current.push(url);
+  }
+
+  function untrackUrl(url: string): void {
+    URL.revokeObjectURL(url);
+    urlsRef.current = urlsRef.current.filter((u) => u !== url);
+  }
+
+  /** Comprime um item e atualiza a lista. Chamado na adição e ao trocar modo/qualidade. */
+  async function runOne(
+    id: string,
+    file: File,
+    origName: string,
+    origSize: number,
+    nextMode: CompressMode,
+    nextQuality: number,
+  ): Promise<void> {
+    try {
+      const { blob, width, height } = await compressImage(file, nextMode, nextQuality);
+      // BAD_FILENAME não bloqueia aqui: o nome de saída já sai slugificado.
+      const issues = checkImage({
+        sizeBytes: origSize,
+        width,
+        targetWidth: null,
+        alt: origName,
+        name: origName,
+        isCompress: true,
+      }).filter((issue) => issue.code !== "BAD_FILENAME");
+      const errors = issues.filter((issue) => issue.level === "error");
+      if (errors.length > 0) {
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? { ...item, status: "erro" as const, error: errors.map((e) => e.message).join(" ") }
+              : item,
+          ),
+        );
+        return;
+      }
+      const ext = nextMode === "jpg" ? "jpg" : "png";
+      const outputName = buildOutputName(origName, "comprimido", null, ext);
+      const outputUrl = URL.createObjectURL(blob);
+      trackUrl(outputUrl);
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          if (item.outputUrl) untrackUrl(item.outputUrl);
+          return {
+            ...item,
+            status: "pronto" as const,
+            width,
+            height,
+            outputSize: blob.size,
+            outputUrl,
+            outputName,
+            error: undefined,
+          };
+        }),
+      );
+    } catch {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, status: "erro" as const, error: "Falha ao processar a imagem no navegador." }
+            : item,
+        ),
+      );
+    }
+  }
 
   function addFiles(files: File[]): void {
     if (files.length === 0) return;
-    const next: CompressItem[] = files.map((file): CompressItem => {
+    const fresh: CompressItem[] = files.map((file) => {
       const isJpeg = file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name);
       const isPng = file.type === "image/png" || /\.png$/i.test(file.name);
       if (!isJpeg && !isPng) {
@@ -90,58 +176,65 @@ export function CompressTab() {
           id: makeId(),
           name: file.name,
           sizeBytes: file.size,
-          status: "erro",
+          status: "erro" as const,
+          file,
           error: "Tipo não suportado — envie apenas JPG ou PNG.",
-        };
-      }
-      const issues = checkImage({
-        sizeBytes: file.size,
-        width: FALLBACK_WIDTH,
-        targetWidth: null,
-        alt: file.name,
-        name: file.name,
-        isCompress: true,
-      });
-      const errors = issues.filter((issue) => issue.level === "error");
-      if (errors.length > 0) {
-        return {
-          id: makeId(),
-          name: file.name,
-          sizeBytes: file.size,
-          status: "erro",
-          error: errors.map((issue) => issue.message).join(" "),
         };
       }
       return {
         id: makeId(),
         name: file.name,
         sizeBytes: file.size,
-        status: "pronto",
-        outputSize: simulateOutputSize(file.name, file.size, mode, quality),
+        status: "processando" as const,
+        file,
       };
     });
-    setItems((prev) => [...prev, ...next]);
+    setItems((prev) => [...prev, ...fresh]);
+    // Sequencial para não estourar memória com fotos grandes.
+    void (async () => {
+      for (const item of fresh) {
+        if (item.status !== "processando") continue;
+        await runOne(item.id, item.file, item.name, item.sizeBytes, mode, quality);
+      }
+    })();
+  }
+
+  function reprocess(targets: CompressItem[], nextMode: CompressMode, nextQuality: number): void {
+    if (targets.length === 0) return;
+    const ids = new Set(targets.map((t) => t.id));
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!ids.has(item.id) || item.status !== "pronto") return item;
+        if (item.outputUrl) untrackUrl(item.outputUrl);
+        const { outputUrl: _drop, outputSize: _dropSize, outputName: _dropName, ...rest } = item;
+        void _drop;
+        void _dropSize;
+        void _dropName;
+        return { ...rest, status: "processando" as const };
+      }),
+    );
+    void (async () => {
+      for (const t of targets) {
+        await runOne(t.id, t.file, t.name, t.sizeBytes, nextMode, nextQuality);
+      }
+    })();
   }
 
   function handleModeChange(next: CompressMode): void {
     setMode(next);
-    setItems((prev) =>
-      prev.map((item) =>
-        item.status === "pronto"
-          ? { ...item, outputSize: simulateOutputSize(item.name, item.sizeBytes, next, quality) }
-          : item,
-      ),
+    reprocess(
+      items.filter((item) => item.status === "pronto"),
+      next,
+      quality,
     );
   }
 
   function handleQualityChange(next: number): void {
     setQuality(next);
-    setItems((prev) =>
-      prev.map((item) =>
-        item.status === "pronto"
-          ? { ...item, outputSize: simulateOutputSize(item.name, item.sizeBytes, mode, next) }
-          : item,
-      ),
+    reprocess(
+      items.filter((item) => item.status === "pronto"),
+      mode,
+      next,
     );
   }
 
@@ -175,17 +268,46 @@ export function CompressTab() {
   }
 
   function removeItem(id: string): void {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+    setItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target?.outputUrl) untrackUrl(target.outputUrl);
+      return prev.filter((item) => item.id !== id);
+    });
   }
 
   function clearDone(): void {
-    setItems((prev) => prev.filter((item) => item.status !== "pronto"));
+    setItems((prev) => {
+      prev.forEach((item) => {
+        if (item.status === "pronto" && item.outputUrl) untrackUrl(item.outputUrl);
+      });
+      return prev.filter((item) => item.status !== "pronto");
+    });
+  }
+
+  /** Baixa todos os prontos (o navegador salva em ~/Downloads; no Tauri irá p/ a pasta escolhida). */
+  function downloadAll(): void {
+    const ready = items.filter(
+      (item): item is CompressItem & { outputUrl: string; outputName: string } =>
+        item.status === "pronto" && item.outputUrl != null && item.outputName != null,
+    );
+    void (async () => {
+      for (const item of ready) {
+        const a = document.createElement("a");
+        a.href = item.outputUrl;
+        a.download = item.outputName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    })();
   }
 
   const totalBefore = items.reduce((acc, item) => acc + item.sizeBytes, 0);
   const totalAfter = items.reduce((acc, item) => acc + (item.outputSize ?? item.sizeBytes), 0);
-  const totalSaved = items.length > 0 ? calcSavedPct(totalBefore, totalAfter) : 0;
+  const totalSaved = items.length > 0 ? Math.max(0, calcSavedPct(totalBefore, totalAfter)) : 0;
   const doneCount = items.filter((item) => item.status === "pronto").length;
+  const processingCount = items.filter((item) => item.status === "processando").length;
 
   const modeCard = (selected: boolean): string =>
     `rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
@@ -200,8 +322,9 @@ export function CompressTab() {
         <header>
           <h2 className="text-lg font-semibold text-white">Comprimir imagens</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Estilo iLoveIMG: mantém formato e dimensões, só reduz o peso. Demonstração com simulação
-            no front (sem backend).
+            Estilo iLoveIMG: mantém formato e dimensões, só reduz o peso. Compressão real no
+            navegador (JPG re-encode + remove EXIF · PNG lossless). O download vai para a sua pasta
+            de Downloads.
           </p>
         </header>
 
@@ -257,7 +380,7 @@ export function CompressTab() {
             />
             <p className="mt-1 text-xs text-zinc-500">
               {MIN_QUALITY} = arquivo menor (mais perda) · {MAX_QUALITY} = qualidade maior (menos
-              economia).
+              economia). Trocar o valor recomprime a lista.
             </p>
           </div>
         ) : (
@@ -312,7 +435,7 @@ export function CompressTab() {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-zinc-800">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[680px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-800 bg-zinc-900 text-xs uppercase tracking-wide text-zinc-500">
                     <th className="px-4 py-3 font-medium">Arquivo</th>
@@ -329,7 +452,7 @@ export function CompressTab() {
                     const max = Math.max(item.sizeBytes, after);
                     const saved =
                       item.status === "pronto" && item.outputSize != null
-                        ? calcSavedPct(item.sizeBytes, item.outputSize)
+                        ? Math.max(0, calcSavedPct(item.sizeBytes, item.outputSize))
                         : 0;
                     return (
                       <tr key={item.id} className="border-b border-zinc-800/60 last:border-0">
@@ -337,6 +460,11 @@ export function CompressTab() {
                           <span className="block truncate font-medium text-white" title={item.name}>
                             {item.name}
                           </span>
+                          {item.width != null && item.height != null && (
+                            <span className="mt-0.5 block text-xs text-zinc-500">
+                              {item.width}×{item.height}px
+                            </span>
+                          )}
                           {item.status === "erro" && item.error != null && (
                             <span className="mt-1 block text-xs leading-relaxed text-red-400">
                               {item.error}
@@ -377,6 +505,8 @@ export function CompressTab() {
                                 −{saved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
                               </span>
                             </span>
+                          ) : item.status === "processando" ? (
+                            <span className="text-zinc-500">comprimindo…</span>
                           ) : (
                             <span className="text-zinc-600">—</span>
                           )}
@@ -386,13 +516,27 @@ export function CompressTab() {
                             className={`inline-block rounded-full px-2.5 py-0.5 text-xs ${
                               item.status === "pronto"
                                 ? "bg-emerald-500/20 text-emerald-300"
-                                : "bg-red-500/20 text-red-300"
+                                : item.status === "processando"
+                                  ? "animate-pulse bg-amber-500/20 text-amber-300"
+                                  : "bg-red-500/20 text-red-300"
                             }`}
                           >
                             {item.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          {item.status === "pronto" &&
+                            item.outputUrl != null &&
+                            item.outputName != null && (
+                              <a
+                                href={item.outputUrl}
+                                download={item.outputName}
+                                aria-label={`Baixar ${item.outputName}`}
+                                className="mr-3 text-xs font-medium text-emerald-300 transition hover:text-emerald-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                              >
+                                baixar
+                              </a>
+                            )}
                           <button
                             type="button"
                             onClick={() => removeItem(item.id)}
@@ -420,15 +564,19 @@ export function CompressTab() {
               <span className="font-medium text-emerald-300">
                 (−{totalSaved.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)
               </span>
+              {processingCount > 0 && (
+                <span className="ml-2 text-amber-300">· {processingCount} comprimindo…</span>
+              )}
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
-                disabled
-                title="Em breve: baixar todas as imagens comprimidas em um arquivo .zip"
-                className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={downloadAll}
+                disabled={doneCount === 0}
+                title="Baixar todas as imagens comprimidas (vão para a pasta Downloads)"
+                className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Exportar ZIP (futuro)
+                Baixar todas ({doneCount})
               </button>
               <button
                 type="button"
