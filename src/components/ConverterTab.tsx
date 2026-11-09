@@ -14,7 +14,6 @@ import {
   formatBytes,
   loadImageElement,
   makeId,
-  supportsAvifEncode,
 } from "./fileUtils";
 
 /** Presets de conversão (resize). Exclui compress-only e logo-lossless. */
@@ -63,6 +62,8 @@ interface ConvertItem {
   file: File;
   outputs: ConvertOutput[];
   avifSkipped: boolean;
+  /** Formatos descartados porque a saída ficou maior que o original. */
+  biggerFormats: ImageFormat[];
   error?: string;
 }
 
@@ -71,8 +72,13 @@ async function convertImage(
   file: File,
   preset: ImagePreset,
   webpQuality: number,
-  avifOk: boolean,
-): Promise<{ outputs: ConvertOutput[]; avifSkipped: boolean; width: number; height: number }> {
+): Promise<{
+  outputs: ConvertOutput[];
+  biggerFormats: ImageFormat[];
+  avifSkipped: boolean;
+  width: number;
+  height: number;
+}> {
   const targetWidth = preset.width ?? 0;
   const src = URL.createObjectURL(file);
   try {
@@ -91,10 +97,6 @@ async function convertImage(
     let avifSkipped = false;
 
     for (const format of preset.formats) {
-      if (format === "avif" && !avifOk) {
-        avifSkipped = true;
-        continue;
-      }
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("canvas");
       ctx.clearRect(0, 0, outWidth, outHeight);
@@ -112,13 +114,26 @@ async function convertImage(
         const q = (preset.jpegQuality ?? 82) / 100;
         blob = await canvasToBlob(canvas, "image/jpeg", q);
       } else {
-        const q = (preset.avifQuality ?? 60) / 100;
-        blob = await canvasToBlob(canvas, "image/avif", q);
+        // AVIF só no app desktop (fase 2: ffmpeg + libavif, como o Cloudinary).
+        // O canvas do navegador gera AVIF MAIOR que o PNG — descartar aqui é
+        // mais honesto que oferecer um download inútil.
+        avifSkipped = true;
+        continue;
       }
       const name = buildOutputName(file.name, preset.id, preset.width, format);
       outputs.push({ format, size: blob.size, url: URL.createObjectURL(blob), name });
     }
-    return { outputs, avifSkipped, width: outWidth, height: outHeight };
+    // Só vale a pena o que ficar MENOR que o original (gráfico chapado em PNG
+    // quase sempre ganha do AVIF — nesse caso descartamos em vez de oferecer
+    // um download inútil).
+    const kept = outputs.filter((o) => o.size < file.size);
+    const biggerFormats = outputs
+      .filter((o) => o.size >= file.size)
+      .map((o) => o.format);
+    outputs
+      .filter((o) => o.size >= file.size)
+      .forEach((o) => URL.revokeObjectURL(o.url));
+    return { outputs: kept, biggerFormats, avifSkipped, width: outWidth, height: outHeight };
   } finally {
     URL.revokeObjectURL(src);
   }
@@ -160,12 +175,10 @@ export function ConverterTab() {
     nextQuality: number,
   ): Promise<void> {
     try {
-      const avifOk = nextPreset.formats.includes("avif") ? await supportsAvifEncode() : false;
-      const { outputs, avifSkipped, width, height } = await convertImage(
+      const { outputs, biggerFormats, avifSkipped, width, height } = await convertImage(
         file,
         nextPreset,
         nextQuality,
-        avifOk,
       );
       // BAD_FILENAME não bloqueia: o nome de saída já sai slugificado.
       const issues = checkImage({
@@ -191,6 +204,22 @@ export function ConverterTab() {
         );
         return;
       }
+      if (outputs.length === 0) {
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  status: "erro" as const,
+                  biggerFormats,
+                  error:
+                    "Saída ficou maior que o original — o arquivo já está otimizado, mantenha como está.",
+                }
+              : item,
+          ),
+        );
+        return;
+      }
       trackUrls(outputs.map((o) => o.url));
       setItems((prev) =>
         prev.map((item) => {
@@ -202,6 +231,7 @@ export function ConverterTab() {
             outWidth: width,
             outHeight: height,
             outputs,
+            biggerFormats,
             avifSkipped,
             error: undefined,
           };
@@ -232,6 +262,7 @@ export function ConverterTab() {
           file,
           outputs: [],
           avifSkipped: false,
+        biggerFormats: [],
           error: "Tipo não suportado — envie JPG, PNG ou WebP.",
         };
       }
@@ -243,6 +274,7 @@ export function ConverterTab() {
         file,
         outputs: [],
         avifSkipped: false,
+        biggerFormats: [],
       };
     });
     setItems((prev) => [...prev, ...fresh]);
@@ -271,6 +303,7 @@ export function ConverterTab() {
           outWidth: undefined,
           outHeight: undefined,
           avifSkipped: false,
+          biggerFormats: [],
           error: undefined,
           status: "processando" as const,
         };
@@ -394,9 +427,9 @@ export function ConverterTab() {
         <header>
           <h2 className="text-lg font-semibold text-white">Converter para web</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Resize opcional + WebP/AVIF no navegador. O padrão é manter o tamanho original — escolha
-            800w/1200w/1920w só se quiser redimensionar. AVIF sai se o navegador suportar encode,
-            senão fica pra fase 2 (Tauri/ffmpeg).
+            Resize opcional + WebP no navegador. O padrão é manter o tamanho original — escolha
+            800w/1200w/1920w só se quiser redimensionar. Qualquer saída maior que o original é
+            descartada. AVIF de verdade (nível Cloudinary) sai no app desktop com ffmpeg.
           </p>
         </header>
 
@@ -569,9 +602,16 @@ export function ConverterTab() {
                                 })}
                               {item.avifSkipped && (
                                 <span className="text-xs text-zinc-600">
-                                  AVIF — sem suporte neste navegador
+                                  AVIF — só no app desktop (fase 2)
                                 </span>
                               )}
+                              {item.biggerFormats
+                                .filter((f) => f !== "jpg")
+                                .map((f) => (
+                                  <span key={f} className="text-xs text-zinc-600">
+                                    {f.toUpperCase()} — ficou maior que o original, descartado
+                                  </span>
+                                ))}
                             </span>
                           ) : item.status === "processando" ? (
                             <span className="text-zinc-500">convertendo…</span>
@@ -671,7 +711,7 @@ export function ConverterTab() {
                 disabled={bulkCount === 0}
                 title={
                   bulkFormat === "avif" && bulkCount === 0
-                    ? "Nenhum AVIF gerado — este navegador não encoda AVIF (fase 2: Tauri)"
+                    ? "AVIF sai no app desktop com ffmpeg (fase 2) — aqui o WebP já resolve"
                     : `Baixar ${bulkFormat.toUpperCase()} de todas as imagens prontas (vão para a pasta Downloads)`
                 }
                 className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
