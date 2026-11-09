@@ -13,7 +13,6 @@ Foco: **imagem primeiro** (uso diário), vídeo como secundário.
 - [x] Overlay de drop na janela inteira; correções: drop duplicado, transparência AVIF, jobId camelCase, fs.exists
 
 ## Must (MVP local, sem auth WP)
-- [ ] Tabela alt editável + export CSV (hoje: só warn de alt ausente no preflight)
 - [ ] Export `.zip` + `report.csv` (antes/depois, % economia)
 - [ ] Presets por cliente (JSON local: prefixo, qualidades, pasta)
 
@@ -25,5 +24,6 @@ Foco: **imagem primeiro** (uso diário), vídeo como secundário.
 
 ## Won't (agora)
 - XML-RPC, escrita em `_elementor_data`, SEO meta via app, AVIF como único formato.
-- WP Connect (upload automático via REST) — decisão do usuário: upload manual no WP, app entrega tabela alt + CSV + zip prontos.
+- WP Connect (upload automático via REST) — decisão do usuário: upload manual no WP.
+- Tabela de alt + CSV — decisão do usuário: alt é escrito direto no WP, sem ganho em etapa extra no app.
 - vips sidecar p/ AVIF (avifenc resolveu melhor).
