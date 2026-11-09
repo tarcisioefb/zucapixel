@@ -261,9 +261,20 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
           } catch {
             /* saída descartada só da lista */
           }
+          // Stream: avisa o descarte na hora, sem esperar os demais formatos.
+          const biggerNow = [...bigger];
+          setItems((prev) =>
+            prev.map((it) => (it.id === item.id ? { ...it, biggerFormats: biggerNow } : it)),
+          );
           continue;
         }
         outputs.push({ format: job.format, size: outSize, path: outPath, name: job.name });
+        // Stream: cada formato concluído aparece na tabela imediatamente —
+        // o AVIF (lento) não segura o WebP (rápido).
+        const outputsNow = [...outputs];
+        setItems((prev) =>
+          prev.map((it) => (it.id === item.id ? { ...it, outputs: outputsNow } : it)),
+        );
       }
 
       if (outputs.length === 0) {
@@ -650,53 +661,56 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                         {formatBytes(item.sizeBytes)}
                       </td>
                       <td className="px-4 py-3">
-                        {item.status === "pronto" ? (
-                          <span className="flex flex-col gap-1.5">
-                            {item.outputs
-                              .filter((o) => o.format !== "jpg")
-                              .map((o) => {
-                                const s = Math.max(0, calcSavedPct(item.sizeBytes, o.size));
-                                return (
-                                  <span key={o.format} className="flex flex-wrap items-center gap-2 whitespace-nowrap">
-                                    <span className="w-10 text-[11px] font-semibold text-zinc-500">
-                                      {o.format.toUpperCase()}
-                                    </span>
-                                    <span className="text-zinc-200">{formatBytes(o.size)}</span>
-                                    <span
-                                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                                        s >= 30
-                                          ? "bg-emerald-500/20 text-emerald-300"
-                                          : "bg-amber-500/20 text-amber-300"
-                                      }`}
-                                    >
-                                      −{s.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
-                                    </span>
+                        <span className="flex flex-col gap-1.5">
+                          {item.status === "processando" && (
+                            <span className="text-xs text-amber-300">
+                              convertendo… {Math.round(item.progress * 100)}%
+                            </span>
+                          )}
+                          {item.outputs
+                            .filter((o) => o.format !== "jpg")
+                            .map((o) => {
+                              const s = Math.max(0, calcSavedPct(item.sizeBytes, o.size));
+                              return (
+                                <span key={o.format} className="flex flex-wrap items-center gap-2 whitespace-nowrap">
+                                  <span className="w-10 text-[11px] font-semibold text-zinc-500">
+                                    {o.format.toUpperCase()}
                                   </span>
-                                );
-                              })}
-                            {item.biggerFormats
-                              .filter((f) => f !== "jpg")
-                              .map((f) => (
-                                <span key={f} className="text-xs text-zinc-600">
-                                  {f.toUpperCase()} — ficou maior que o original, descartado
+                                  <span className="text-zinc-200">{formatBytes(o.size)}</span>
+                                  <span
+                                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                                      s >= 30
+                                        ? "bg-emerald-500/20 text-emerald-300"
+                                        : "bg-amber-500/20 text-amber-300"
+                                    }`}
+                                  >
+                                    −{s.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                                  </span>
                                 </span>
-                              ))}
-                            {item.avifSkipped && (
-                              <span className="text-xs text-zinc-600">
-                                AVIF indisponível neste arquivo
+                              );
+                            })}
+                          {item.biggerFormats
+                            .filter((f) => f !== "jpg")
+                            .map((f) => (
+                              <span key={f} className="text-xs text-zinc-600">
+                                {f.toUpperCase()} — ficou maior que o original, descartado
                               </span>
+                            ))}
+                          {item.avifSkipped && (
+                            <span className="text-xs text-zinc-600">
+                              AVIF indisponível neste arquivo
+                            </span>
+                          )}
+                          {item.outputs.length === 0 &&
+                            item.biggerFormats.length === 0 &&
+                            !item.avifSkipped &&
+                            item.status !== "processando" && (
+                              <span className="text-zinc-600">—</span>
                             )}
-                          </span>
-                        ) : item.status === "processando" ? (
-                          <span className="text-zinc-500">
-                            processando… {Math.round(item.progress * 100)}%
-                          </span>
-                        ) : (
-                          <span className="text-zinc-600">—</span>
-                        )}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
-                        {item.status === "pronto" ? (
+                        {item.outputs.length > 0 ? (
                           <span className="flex flex-wrap gap-x-3 gap-y-1">
                             {item.outputs.map((o) => (
                               <button
