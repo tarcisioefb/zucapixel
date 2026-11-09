@@ -75,14 +75,22 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const inputPicking = useRef(false);
 
   // Drop na janela entrega paths reais do SO.
+  // NOTE: `onWindowDrop` é assíncrono — sem o flag `cancelled`, o cleanup do
+  // StrictMode (remount em dev) roda antes do `.then` e o 1º listener nunca é
+  // removido, duplicando cada drop. Foi exatamente esse bug (4 imgs → 8 itens).
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     void onWindowDrop((paths) => {
       void addPaths(paths);
     }).then((u) => {
-      unlisten = u;
+      if (cancelled) u();
+      else unlisten = u;
     });
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   async function dimsOf(path: string): Promise<{ w: number; h: number } | null> {
