@@ -25,7 +25,7 @@ import {
   dirname,
   ensureOutputDir,
   fileExists,
-  onWindowDrop,
+  onWindowDragDrop,
   openFolder,
   pickImageFiles,
   probeMedia,
@@ -72,11 +72,22 @@ const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
 const COMPRESS_JPG = IMAGE_PRESETS.find((p) => p.id === "compress-jpg");
 const COMPRESS_PNG = IMAGE_PRESETS.find((p) => p.id === "compress-png");
 
+function GearIcon(): JSX.Element {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
 export function TauriConvertTab({ kind }: { kind: TabKind }) {
   const [presetId, setPresetId] = useState<string>("original");
   const [compressMode, setCompressMode] = useState<CompressMode>("jpg");
   const [quality, setQuality] = useState<number>(kind === "compress" ? 75 : 85);
   const [avifQuality, setAvifQuality] = useState<number>(65);
+  const [showQuality, setShowQuality] = useState<boolean>(false);
+  const [windowDragging, setWindowDragging] = useState<boolean>(false);
   const [items, setItems] = useState<TauriItem[]>([]);
   const [outDir, setOutDir] = useState<string>("");
   const outDirRef = useRef<string | null>(null);
@@ -89,8 +100,11 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void onWindowDrop((paths) => {
-      void addPaths(paths);
+    void onWindowDragDrop({
+      onDrop: (paths) => {
+        void addPaths(paths);
+      },
+      onDragActive: (active) => setWindowDragging(active),
     }).then((u) => {
       if (cancelled) u();
       else unlisten = u;
@@ -394,6 +408,19 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-6">
+      {windowDragging && (
+        <div
+          className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          aria-hidden="true"
+        >
+          <div className="flex h-full w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-400 bg-emerald-500/10">
+            <p className="text-lg font-medium text-white">Solte para adicionar à fila</p>
+            <p className="mt-1 text-sm text-emerald-200">
+              pode soltar em qualquer lugar da janela
+            </p>
+          </div>
+        </div>
+      )}
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <header>
           <h2 className="text-lg font-semibold text-white">{title}</h2>
@@ -402,93 +429,169 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
 
         {isConvert ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="group" aria-label="Preset de conversão">
-            {CONVERT_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                aria-pressed={presetId === p.id}
-                onClick={() => reprocessAll(p.id, p.webpQuality ?? quality, p.avifQuality ?? avifQuality, compressMode)}
-                className={`rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
-                  presetId === p.id
-                    ? "border-emerald-500 bg-emerald-500/10"
-                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"
-                }`}
-              >
-                <span className="block text-sm font-semibold text-white">{p.label}</span>
-                <span className="mt-1 block text-xs leading-relaxed text-zinc-400">{p.description}</span>
-                <span className="mt-2 block text-xs font-medium text-emerald-300">
-                  {p.formats.join(" + ").toUpperCase()}
-                </span>
-              </button>
-            ))}
+            {CONVERT_PRESETS.map((p) => {
+              const selected = presetId === p.id;
+              const select = () =>
+                reprocessAll(p.id, p.webpQuality ?? quality, p.avifQuality ?? avifQuality, compressMode);
+              return (
+                <div
+                  key={p.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selected}
+                  aria-label={`Preset ${p.label}`}
+                  onClick={select}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      select();
+                    }
+                  }}
+                  className={`relative cursor-pointer rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                    selected
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"
+                  }`}
+                >
+                  <span className="block pr-8 text-sm font-semibold text-white">{p.label}</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-zinc-400">{p.description}</span>
+                  <span className="mt-2 block text-xs font-medium text-emerald-300">
+                    {p.formats.join(" + ").toUpperCase()}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Ajustes de qualidade: ${p.label}`}
+                    aria-expanded={selected && showQuality}
+                    title="Ajustes de qualidade"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!selected) {
+                        select();
+                        setShowQuality(true);
+                      } else {
+                        setShowQuality((v) => !v);
+                      }
+                    }}
+                    className="absolute right-2 top-2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  >
+                    <GearIcon />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label="Modo de compressão">
             {(["jpg", "png"] as const).map((m) => {
               const p = m === "jpg" ? COMPRESS_JPG : COMPRESS_PNG;
+              const selected = compressMode === m;
+              const select = () => reprocessAll(presetId, quality, avifQuality, m);
               return (
-                <button
+                <div
                   key={m}
-                  type="button"
-                  aria-pressed={compressMode === m}
-                  onClick={() => reprocessAll(presetId, quality, avifQuality, m)}
-                  className={`rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
-                    compressMode === m
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selected}
+                  aria-label={`Comprimir ${m.toUpperCase()}`}
+                  onClick={select}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      select();
+                    }
+                  }}
+                  className={`relative cursor-pointer rounded-xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                    selected
                       ? "border-emerald-500 bg-emerald-500/10"
                       : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"
                   }`}
                 >
-                  <span className="block text-sm font-semibold text-white">
+                  <span className="block pr-8 text-sm font-semibold text-white">
                     Comprimir {m.toUpperCase()}
                   </span>
                   <span className="mt-1 block text-xs leading-relaxed text-zinc-400">
                     {p?.description ?? ""}
                   </span>
-                </button>
+                  {m === "jpg" && (
+                    <button
+                      type="button"
+                      aria-label="Ajustes de qualidade: Comprimir JPG"
+                      aria-expanded={selected && showQuality}
+                      title="Ajustes de qualidade"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!selected) {
+                          select();
+                          setShowQuality(true);
+                        } else {
+                          setShowQuality((v) => !v);
+                        }
+                      }}
+                      className="absolute right-2 top-2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                    >
+                      <GearIcon />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
         )}
 
-        {(isConvert || compressMode === "jpg") && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <label htmlFor="tauri-quality" className="text-sm font-medium text-zinc-200">
-              Qualidade {isConvert ? "WebP" : "JPG"}: <span className="text-white">{quality}</span>
-            </label>
-            <input
-              id="tauri-quality"
-              type="range"
-              min={MIN_QUALITY}
-              max={MAX_QUALITY}
-              step={1}
-              value={quality}
-              onChange={(e) => reprocessAll(presetId, Number(e.target.value), avifQuality, compressMode)}
-              className="mt-2 w-full accent-emerald-400"
-            />
-            <p className="mt-1 text-xs text-zinc-500">
-              Trocar o valor reconverte a lista. JPG fallback do preset 1200w sai em q82 fixo.
-            </p>
-          </div>
-        )}
-
-        {isConvert && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <label htmlFor="tauri-avif-quality" className="text-sm font-medium text-zinc-200">
-              Qualidade AVIF: <span className="text-white">{avifQuality}</span>
-            </label>
-            <input
-              id="tauri-avif-quality"
-              type="range"
-              min={MIN_QUALITY}
-              max={MAX_QUALITY}
-              step={1}
-              value={avifQuality}
-              onChange={(e) => reprocessAll(presetId, quality, Number(e.target.value), compressMode)}
-              className="mt-2 w-full accent-emerald-400"
-            />
-            <p className="mt-1 text-xs text-zinc-500">
-              60 = menor arquivo · 65 = equilíbrio (padrão) · 85+ = arquivístico, raramente vale.
-            </p>
+        {showQuality && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-zinc-400">
+                Qualidade — {isConvert ? findPreset(presetId).label : `Comprimir ${compressMode.toUpperCase()}`}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowQuality(false)}
+                className="text-xs text-zinc-500 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              >
+                fechar
+              </button>
+            </div>
+            {(isConvert || compressMode === "jpg") && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                <label htmlFor="tauri-quality" className="text-sm font-medium text-zinc-200">
+                  Qualidade {isConvert ? "WebP" : "JPG"}: <span className="text-white">{quality}</span>
+                </label>
+                <input
+                  id="tauri-quality"
+                  type="range"
+                  min={MIN_QUALITY}
+                  max={MAX_QUALITY}
+                  step={1}
+                  value={quality}
+                  onChange={(e) => reprocessAll(presetId, Number(e.target.value), avifQuality, compressMode)}
+                  className="mt-2 w-full accent-emerald-400"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  Trocar o valor reconverte a lista. JPG fallback do preset 1200w sai em q82 fixo.
+                </p>
+              </div>
+            )}
+            {isConvert && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                <label htmlFor="tauri-avif-quality" className="text-sm font-medium text-zinc-200">
+                  Qualidade AVIF: <span className="text-white">{avifQuality}</span>
+                </label>
+                <input
+                  id="tauri-avif-quality"
+                  type="range"
+                  min={MIN_QUALITY}
+                  max={MAX_QUALITY}
+                  step={1}
+                  value={avifQuality}
+                  onChange={(e) => reprocessAll(presetId, quality, Number(e.target.value), compressMode)}
+                  className="mt-2 w-full accent-emerald-400"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  60 = menor arquivo · 65 = equilíbrio (padrão) · 85+ = arquivístico, raramente vale.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

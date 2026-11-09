@@ -159,12 +159,24 @@ export async function pickImageFiles(allowWebp: boolean): Promise<string[]> {
   return Array.isArray(selected) ? selected : [selected];
 }
 
-/** Assina o drop de arquivos na JANELA (retorna paths reais do SO). */
-export async function onWindowDrop(
-  cb: (paths: string[]) => void,
-): Promise<() => void> {
+/**
+ * Assina drag-drop de arquivos na JANELA inteira (retorna paths reais do SO).
+ * `onDragActive` liga/desliga o overlay visual durante o arraste.
+ */
+export async function onWindowDragDrop(callbacks: {
+  onDrop: (paths: string[]) => void;
+  onDragActive: (active: boolean) => void;
+}): Promise<() => void> {
   const unlisten = await getCurrentWebviewWindow().onDragDropEvent((event) => {
-    if (event.payload.type === "drop") cb(event.payload.paths);
+    const t = event.payload.type;
+    if (t === "drop") {
+      callbacks.onDragActive(false);
+      callbacks.onDrop(event.payload.paths);
+    } else if (t === "enter" || t === "over") {
+      callbacks.onDragActive(true);
+    } else {
+      callbacks.onDragActive(false);
+    }
   });
   return unlisten;
 }
