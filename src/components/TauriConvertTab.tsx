@@ -27,7 +27,9 @@ import {
   onWindowDrop,
   openFolder,
   pickImageFiles,
+  pixFmtHasAlpha,
   probeMedia,
+  probePixFmt,
   revealFile,
   runFfmpeg,
 } from "../lib/infra/TauriFfmpeg";
@@ -56,7 +58,9 @@ interface TauriItem {
   progress: number;
   outputs: TauriOutput[];
   biggerFormats: ImageFormat[];
-  avifError: boolean;
+  avifSkipped: boolean;
+  /** true quando o AVIF foi pulado porque a imagem tem transparência. */
+  avifAlphaSkipped: boolean;
   error?: string;
 }
 
@@ -128,14 +132,14 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       } catch {
         fresh.push({
           id: makeId(), path, name, sizeBytes: 0, status: "erro", progress: 0,
-          outputs: [], biggerFormats: [], avifError: false,
+          outputs: [], biggerFormats: [], avifSkipped: false, avifAlphaSkipped: false,
           error: "Não foi possível ler o arquivo.",
         });
         continue;
       }
       fresh.push({
         id: makeId(), path, name, sizeBytes, status: "processando", progress: 0,
-        outputs: [], biggerFormats: [], avifError: false,
+        outputs: [], biggerFormats: [], avifSkipped: false, avifAlphaSkipped: false,
       });
     }
     setItems((prev) => [...prev, ...fresh]);
@@ -160,6 +164,16 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, progress: p } : it)));
     try {
       const dims = await dimsOf(item.path);
+      // libaom/svtav1 deste sidecar não encodam alpha: se a entrada tem
+      // transparência, o AVIF é pulado (WebP preserva via yuva420p).
+      let hasAlpha = false;
+      if (/\.(png|webp|avif)$/i.test(item.path)) {
+        try {
+          hasAlpha = pixFmtHasAlpha(await probePixFmt(item.path));
+        } catch {
+          hasAlpha = false;
+        }
+      }
       const targetWidth = kind === "convert" ? (effPreset?.width ?? null) : null;
       // BAD_FILENAME não bloqueia: a saída já sai slugificada.
       const issues = checkImage({
@@ -189,7 +203,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
       const dir = outDirRef.current;
       const outputs: TauriOutput[] = [];
       const bigger: ImageFormat[] = [];
-      let avifError = false;
+      let avifSkipped = false;
+      let alphaSkipped = false;
 
       const jobs: { format: ImageFormat; args: string[]; name: string }[] = [];
       if (kind === "convert" && effPreset) {
@@ -200,8 +215,12 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
             jobs.push({ format, name, args: buildImageFfmpegArgs(item.path, out, effPreset.width, "webp", effQuality) });
           } else if (format === "jpg") {
             jobs.push({ format, name, args: buildImageFfmpegArgs(item.path, out, effPreset.width, "jpg", effPreset.jpegQuality ?? 82) });
-          } else {
+          } else if (!hasAlpha) {
             jobs.push({ format, name, args: buildAvifFfmpegArgs(item.path, out, effPreset.width, effPreset.avifQuality ?? 60) });
+          } else {
+            avifSkipped = true;
+            alphaSkipped = true;
+            continue;
           }
         }
       } else {
@@ -244,7 +263,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                   ...it,
                   status: "erro" as const,
                   biggerFormats: bigger,
-                  avifError,
+                  avifSkipped,
+                  avifAlphaSkipped: alphaSkipped,
                   error:
                     "Saída ficou maior que o original — o arquivo já está otimizado, mantenha como está.",
                 }
@@ -267,7 +287,8 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                 outHeight: dims?.h,
                 outputs,
                 biggerFormats: bigger,
-                avifError,
+                avifSkipped,
+                avifAlphaSkipped: alphaSkipped,
                 error: undefined,
               }
             : it,
@@ -315,7 +336,7 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
     setItems((prev) =>
       prev.map((it) =>
         ids.has(it.id)
-          ? { ...it, status: "processando" as const, progress: 0, outputs: [], biggerFormats: [], avifError: false, error: undefined }
+          ? { ...it, status: "processando" as const, progress: 0, outputs: [], biggerFormats: [], avifSkipped: false, avifAlphaSkipped: false, error: undefined }
           : it,
       ),
     );
@@ -514,6 +535,11 @@ export function TauriConvertTab({ kind }: { kind: TabKind }) {
                                   {f.toUpperCase()} — ficou maior que o original, descartado
                                 </span>
                               ))}
+                            {item.avifAlphaSkipped && (
+                              <span className="text-xs text-zinc-600">
+                                AVIF pulado: transparência (use WebP)
+                              </span>
+                            )}
                           </span>
                         ) : item.status === "processando" ? (
                           <span className="text-zinc-500">

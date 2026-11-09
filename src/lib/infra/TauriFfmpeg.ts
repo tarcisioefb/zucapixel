@@ -44,6 +44,20 @@ export async function probeMedia(path: string): Promise<ProbeResult> {
   return invoke<ProbeResult>("probe_media", { path });
 }
 
+/** Pixel format do 1º stream de vídeo (`rgba`, `yuv420p`, …) ou null. */
+export async function probePixFmt(path: string): Promise<string | null> {
+  return invoke<string | null>("probe_pix_fmt", { path });
+}
+
+/** true se o pixel format carrega canal alpha. */
+export function pixFmtHasAlpha(pixFmt: string | null | undefined): boolean {
+  if (!pixFmt) return false;
+  const token = pixFmt.toLowerCase();
+  return ["rgba", "bgra", "argb", "abgr", "gbrap", "yuva", "ya"].some(
+    (p) => token === p || token.startsWith(p),
+  );
+}
+
 /**
  * Roda o sidecar ffmpeg. `onProgress` recebe 0..1 (imagens: poucos eventos,
  * a UI mostra "processando" até concluir).

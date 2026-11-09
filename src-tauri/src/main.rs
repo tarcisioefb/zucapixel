@@ -211,6 +211,45 @@ async fn run_ffmpeg(
     Ok(job_id)
 }
 
+/// Devolve o pixel format do primeiro stream de vídeo (`ffmpeg -i`).
+/// Usado para detectar alpha (rgba/bgra/yuva…) antes de escolher o encoder:
+/// o libaom-av1/svtav1 deste sidecar NÃO aceitam YUVA — o front pula o AVIF
+/// quando há transparência (WebP preserva via yuva420p).
+#[tauri::command]
+async fn probe_pix_fmt(app: tauri::AppHandle, path: String) -> Result<Option<String>, String> {
+    let output = app
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| format!("Sidecar ffmpeg indisponível: {e}"))?
+        .args(["-hide_banner", "-i", &path, "-f", "null", "-"])
+        .output()
+        .await
+        .map_err(|e| format!("Falha ao inspecionar mídia: {e}"))?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for line in stderr.lines() {
+        if let Some(idx) = line.find("Video:") {
+            // "png, rgba(pc, ..." -> codec, depois pix_fmt
+            let rest = line[idx + "Video:".len()..].trim_start();
+            let mut parts = rest.split(',');
+            parts.next(); // codec ("png")
+            if let Some(pix) = parts.next() {
+                let token: String = pix
+                    .trim()
+                    .split(|c: char| c == '(' || c.is_whitespace())
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if !token.is_empty() {
+                    return Ok(Some(token));
+                }
+            }
+            break;
+        }
+    }
+    Ok(None)
+}
+
 /// Lista arquivos de um diretório de saída (`$APPDATA/out`, `~/Downloads`, ...).
 /// Retorna nome + caminho + tamanho. Ignora subdiretórios e erros por arquivo.
 #[tauri::command]
@@ -255,6 +294,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             greeting,
             probe_media,
+            probe_pix_fmt,
             run_ffmpeg,
             list_outputs
         ])
