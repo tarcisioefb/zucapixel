@@ -18,7 +18,8 @@ export interface PreflightIssue {
 // Limites (bytes p/ evitar float de KB)
 const KB = 1024;
 const MB = 1024 * 1024;
-const IMAGE_HARD_LIMIT = 300 * KB; // >300KB = error, sempre
+const IMAGE_HARD_LIMIT = 5 * MB; // >5MB = error, sempre
+const COMPRESS_WARN_LIMIT = 300 * KB; // compress: acima disso vira warn "boa candidata"
 const HERO_WARN_LIMIT = 150 * KB; // hero >150KB = warn
 const VIDEO_HARD_LIMIT = 12 * MB; // >12MB = error
 const HERO_VIDEO_WARN = 2 * MB; // hero >2MB = warn
@@ -71,7 +72,7 @@ function findFilenameProblems(name: string): string[] {
  * Valida uma imagem antes de entrar na fila.
  *
  * Regras:
- * - >300KB → error | hero >150KB → warn
+ * - >5MB → error | hero >150KB → warn | compress >300KB → warn (boa candidata)
  * - width >2560 → error (WP -scaled)
  * - espaço/maiúscula/acento no nome → error (um por problema)
  * - sem alt → warn | upscale (origem < alvo) → error
@@ -88,6 +89,7 @@ export function checkImage(params: CheckImageParams): PreflightIssue[] {
 
   // Modo compress (iLoveIMG): entrada de 2-8MB é o caso de uso, não erro.
   // Só bloqueia acima de 10MB; acima de 300KB vira warn com expectativa de economia.
+  // Conversão normal: bloqueia só acima de 5MB (foto de celular/câmera entra direto).
   const hardLimit = isCompress ? 10 * MB : IMAGE_HARD_LIMIT;
   if (sizeBytes > hardLimit) {
     issues.push({
@@ -95,9 +97,9 @@ export function checkImage(params: CheckImageParams): PreflightIssue[] {
       code: 'IMAGE_TOO_HEAVY',
       message: isCompress
         ? `Imagem com ${(sizeBytes / MB).toFixed(1)}MB — acima de 10MB, nem a compressão salva. Redimensione antes.`
-        : `Imagem com ${(sizeBytes / KB).toFixed(0)}KB — acima do limite de 300KB. Use o preset Comprimir JPG/PNG antes de converter.`,
+        : `Imagem com ${(sizeBytes / MB).toFixed(1)}MB — acima do limite de 5MB. Redimensione ou use o preset Comprimir antes de converter.`,
     });
-  } else if (isCompress && sizeBytes > IMAGE_HARD_LIMIT) {
+  } else if (isCompress && sizeBytes > COMPRESS_WARN_LIMIT) {
     issues.push({
       level: 'warn',
       code: 'COMPRESS_EXPECTED_SAVING',
