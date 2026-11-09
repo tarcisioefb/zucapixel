@@ -1,0 +1,15 @@
+# deps
+node_modules/
+
+# build
+dist/
+dist-ssr/
+
+# tauri (src-tauri gerenciado por outro agente — não sobrescrever)
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+# logs / os
+*.log
+.DS_Store
