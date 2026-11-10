@@ -1,6 +1,6 @@
-# Elementor Companion
+# ZucaPixel
 
-App desktop (Tauri) image-first para preparar imagens para Elementor/WordPress: fila de conversão, presets (resize, WebP/AVIF, **compressão JPG/PNG estilo iLoveIMG**) e export.
+App desktop (Tauri) para deixar mídias prontas pra web: conversão de imagens (resize opcional, WebP/AVIF/JPG), **compressão JPG/PNG estilo iLoveIMG** e vídeo web-friendly (MP4/WebM/AVIF + poster). Saída em `Imagens/Otimizadas`.
 
 ## Stack
 

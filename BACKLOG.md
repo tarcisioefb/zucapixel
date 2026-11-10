@@ -1,4 +1,4 @@
-# Elementor Companion — Backlog
+# ZucaPixel — Backlog
 
 Foco: **imagem primeiro** (uso diário), vídeo como secundário.
 

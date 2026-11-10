@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Elementor Companion",
+  "productName": "ZucaPixel",
   "version": "0.1.0",
-  "identifier": "com.elementor-companion",
+  "identifier": "com.zucapixel",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Elementor Companion",
+        "title": "ZucaPixel",
         "width": 1180,
         "height": 760,
         "minWidth": 1180,

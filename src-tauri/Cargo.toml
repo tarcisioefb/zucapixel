@@ -1,7 +1,7 @@
 [package]
-name = "elementor-companion"
+name = "zucapixel"
 version = "0.1.0"
-description = "Elementor Companion — backend Tauri v2 image-first"
+description = "ZucaPixel — backend Tauri v2 image-first"
 edition = "2021"
 rust-version = "1.77.2"
 

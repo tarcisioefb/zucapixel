@@ -1,4 +1,4 @@
-//! Backend Tauri v2 — Elementor Companion (image-first, lógica mínima).
+//! Backend Tauri v2 — ZucaPixel (image-first, lógica mínima).
 //! Todos os comentários em pt-BR. Compile-safe: sem crates extras além de
 //! tauri / plugins / serde / tokio (sem ffprobe-deps, sem image-deps).
 
@@ -482,5 +482,5 @@ fn main() {
             list_outputs
         ])
         .run(tauri::generate_context!())
-        .expect("Falha ao iniciar o Elementor Companion");
+        .expect("Falha ao iniciar o ZucaPixel");
 }

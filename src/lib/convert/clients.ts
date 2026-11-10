@@ -15,8 +15,11 @@ export interface ClientPreset {
   updatedAt: number;
 }
 
-const LIST_KEY = "elementor-companion.clients.v1";
-const ACTIVE_KEY = "elementor-companion.active-client.v1";
+const LIST_KEY = "zucapixel.clients.v1";
+const ACTIVE_KEY = "zucapixel.active-client.v1";
+// Chaves legadas (nome anterior do app): lidas uma vez e migradas.
+const LEGACY_LIST_KEY = "elementor-companion.clients.v1";
+const LEGACY_ACTIVE_KEY = "elementor-companion.active-client.v1";
 
 export const DEFAULT_CLIENT: ClientPreset = {
   id: "padrao",
@@ -46,17 +49,25 @@ function normalize(raw: unknown): ClientPreset | null {
   };
 }
 
-/** Lê a lista (sempre inclui o Padrão primeiro). */
+/** Lê a lista (sempre inclui o Padrão primeiro). Migra chaves legadas 1x. */
 export function loadClients(): ClientPreset[] {
   try {
-    const raw = localStorage.getItem(LIST_KEY);
+    const raw = localStorage.getItem(LIST_KEY) ?? localStorage.getItem(LEGACY_LIST_KEY);
     if (!raw) return [{ ...DEFAULT_CLIENT }];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [{ ...DEFAULT_CLIENT }];
     const list = parsed
       .map(normalize)
       .filter((c): c is ClientPreset => c !== null && c.id !== DEFAULT_CLIENT.id);
-    return [{ ...DEFAULT_CLIENT }, ...list];
+    const merged = [{ ...DEFAULT_CLIENT }, ...list];
+    // Migra: persiste no novo formato para não ler o legado de novo.
+    try {
+      localStorage.setItem(LIST_KEY, JSON.stringify(list));
+      localStorage.removeItem(LEGACY_LIST_KEY);
+    } catch {
+      /* segue sem persistir */
+    }
+    return merged;
   } catch {
     return [{ ...DEFAULT_CLIENT }];
   }
@@ -74,7 +85,11 @@ export function saveClients(list: ClientPreset[]): void {
 
 export function getActiveClientId(): string {
   try {
-    return localStorage.getItem(ACTIVE_KEY) ?? DEFAULT_CLIENT.id;
+    return (
+      localStorage.getItem(ACTIVE_KEY) ??
+      localStorage.getItem(LEGACY_ACTIVE_KEY) ??
+      DEFAULT_CLIENT.id
+    );
   } catch {
     return DEFAULT_CLIENT.id;
   }
